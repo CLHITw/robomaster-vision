@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.idea/
+.vscode/
+
+# Run outputs and input videos are not committed
+outputs/
+videos/
+*.avi
+*.mp4
+*.mov
