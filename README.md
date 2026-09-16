@@ -91,8 +91,8 @@ that are probably false positives:
 
 Without labelled frames, "more measurements used" is not evidence of "more correct". Rather than picking the
 row with the nicest number, the default scales with the frame size (2% of the width), which keeps the gate the
-same size relative to the image across cameras. Labelling a few hundred frames is the obvious next step, and it
-is what would turn every percentage on this page into an accuracy.
+same size relative to the image across cameras. Turning these percentages into accuracies needs ground truth,
+which is what the labelling tool below is for.
 
 ## Honest boundaries
 
@@ -105,8 +105,9 @@ is what would turn every percentage on this page into an accuracy.
   exists.
 - The C++ `display()` function (PnP pose and ballistics) was never finished in 2021 and does not compile, so it
   is not replayed.
-- **There is no ground truth.** Every percentage here says how often a stage produced an output, not whether
-  the output was correct. Sampled frames were checked by eye.
+- **The percentages above have no ground truth behind them.** They say how often a stage produced an output,
+  not whether the output was correct; sampled frames were checked by eye. `label_frames.py` and `evaluate.py`
+  exist to replace them with measured accuracies, and this section will be updated once frames are labelled.
 - The tracker, the harness, the tests and this README are from 2026 and were written with help from an AI
   coding assistant. All numbers come from the scripts in this repository.
 
@@ -118,11 +119,39 @@ thresholds of the 2021 detector assume the original camera, so frames have to be
 wide (`--proc-width`), and in a scene with both a blue and a red robot the automatic colour choice is
 meaningless and has to be set by hand.
 
+## Ground truth: labelling and scoring
+
+Everything above counts *outputs*, not *correct outputs*. [`label_frames.py`](label_frames.py) is a click tool
+for building the missing ground truth, and [`evaluate.py`](evaluate.py) scores both stages against it.
+
+```bash
+python label_frames.py video2.avi --every 5   # click the armor centre on every 5th frame
+python evaluate.py video2.avi                 # score the detector and the tracker
+```
+
+In the labelling window: **left click** marks the armor plate the turret should aim at, **x** marks a frame
+with no visible target, **n** skips, **b** goes back, **u** clears the frame and **q** saves and quits. Labels
+go to `labels/<video>.csv` after every click, so the work survives a crash and the tool resumes at the first
+unlabelled frame.
+
+`evaluate.py` then replays the video and reports, for the labelled frames:
+
+- how often the 2021 detector's single-armor output is within tolerance of the clicked centre — its precision,
+  and its share of all frames that had a target;
+- the same for the tracker, split into frames where it used a measurement and frames where it was coasting;
+- how often the right pair was among the candidates but the pairing rules dropped it (an upper bound on what
+  better pairing rules could reach);
+- how often a target is reported on frames labelled as empty;
+- median and 90th-percentile error in pixels, plus an error-over-time plot.
+
+The default tolerance is 2% of the frame width (25.6 px at 1280), roughly half an armor plate at mid distance;
+`--tol-px` overrides it. Scoring logic is unit-tested in [`tests/test_metrics.py`](tests/test_metrics.py).
+
 ## Running it
 
 ```bash
 pip install -r requirements.txt
-python -m pytest                                   # 8 tests on synthetic frames
+python -m pytest                                   # 13 tests on synthetic frames
 python run_videos.py                               # every video in this folder, played back in a window
 python run_videos.py video2.avi --proc-width 0
 python make_figures.py video2.avi --proc-width 0   # rebuild the figures above
@@ -149,4 +178,7 @@ Each video is played back with the detections drawn on it and written to `output
 | [`replay/visualize.py`](replay/visualize.py) | Overlays, contact sheets, plots. |
 | [`run_videos.py`](run_videos.py) | Playback and evaluation over one or more videos. |
 | [`make_figures.py`](make_figures.py) | Builds the figures in this README. |
+| [`label_frames.py`](label_frames.py) | Click tool for ground-truth armor centres. |
+| [`evaluate.py`](evaluate.py) | Scores detector and tracker against those labels. |
+| [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
 | [`tests/`](tests) | Unit tests on synthetic frames: detection, colour selection, pairing rules, tracker gating. |
