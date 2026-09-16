@@ -4,8 +4,6 @@ In 2021 I was on the vision team of HITCRT, the RoboMaster team at Harbin Instit
 early attempts at finding an enemy robot in video, plus 2026 tooling that re-runs the old code on new videos and
 measures how well it works.
 
-> Work in progress: the results section will be filled in after more test videos have been evaluated.
-
 ## Repository layout
 
 | Path | What it is |
@@ -39,26 +37,55 @@ not a compiled run of the C++ code.
 ```bash
 pip install -r requirements.txt
 python -m pytest
-python run_videos.py path/to/video.avi                  # one video
-python run_videos.py videos/ --save-video               # every video in a folder, plus annotated mp4
-python run_videos.py "videos/*.mp4" --enemy red         # red light bars (see limitations)
+python run_videos.py video0.avi          # one video, played back in a window
+python run_videos.py .                   # every video in this folder
+python run_videos.py . --no-show         # batch mode, no window
 ```
 
-Outputs per video go to `outputs/<video name>/`: `summary.json`, `frames.csv`, contact sheets for each stage
-(`v1_sheet.jpg`, `v2_sheet.jpg`, `track_sheet.jpg`), `track_plot.png` and, optionally, `annotated.mp4`.
-`outputs/summary.csv` has one row per video.
+Each video is played back with the detections drawn on it, and the same annotated frames are written to
+`outputs/<video name>/annotated.mp4`. While the window is open: **space** pauses, **n** skips to the next video,
+**q** or **Esc** stops, **s** saves the current frame as a png.
+
+Useful options:
+
+| Option | Meaning |
+|---|---|
+| `--enemy auto\|blue\|red` | Light-bar colour. `auto` (default) runs both variants on ~30 frames and keeps the better one. |
+| `--proc-width 720` | Frames are downscaled to this width before detection, because the 2021 thresholds (light bar height 10–150 px) were written for roughly this size. `0` keeps the original resolution. |
+| `--speed 2` | Playback speed of the window. |
+| `--no-video`, `--no-show` | Skip the mp4, or skip the window. |
+| `--max-coast`, `--meas-std`, `--accel-std` | Tracker tuning. |
+
+Besides `annotated.mp4`, each run writes `summary.json`, `frames.csv`, contact sheets for every stage
+(`v1_sheet.jpg`, `v2_sheet.jpg`, `track_sheet.jpg`) and `track_plot.png`; `outputs/summary.csv` collects one row
+per video.
 
 ## Results so far
 
-| Video | Frames | v1 | v2: exactly one armor | v2: several armors | Tracker: estimate available | of which measured | of which coasting |
-|---|---|---|---|---|---|---|---|
-| video1 (blue robot, handheld phone, 720×1280) | 601 | boxes floor tape and shadows, not the robot | 22.5% | 10.0% | 91.0% | 31.4% | 59.6% |
+Five phone videos (1080x1920, downscaled to 720x1280 for detection), 2430 frames in total. v1 never finds the
+robot in any of them: it boxes floor tape, shadows and, in every frame, the whole image.
 
-On video1 the tracker picked a candidate in 59 of the 60 frames with several armors, and 5 single detections
-were rejected by the gate. Coasting frames extrapolate the last velocity and can overshoot.
+| Video | Frames | Colour | v2: one armor | v2: several | Tracker: estimate | measured | coasting | several resolved | lost |
+|---|---|---|---|---|---|---|---|---|---|
+| video0 | 440 | blue | 37.5% | 14.3% | 96.1% | 40.9% | 55.2% | 47/63 | 2 |
+| video1 | 401 | blue* | 17.2% | 2.0% | 85.3% | 15.0% | 70.3% | 8/8 | 5 |
+| video2 | 747 | blue | 17.7% | 5.6% | 77.9% | 21.2% | 56.8% | 40/42 | 7 |
+| video3 | 602 | blue | 12.1% | 2.2% | 64.6% | 12.1% | 52.5% | 11/13 | 6 |
+| video4 | 240 | red | 12.1% | 5.4% | 57.1% | 17.5% | 39.6% | 13/13 | 3 |
 
-**No ground truth yet.** These numbers describe how often each stage produces an output, not whether the output
-is correct. Sampled frames were checked by eye.
+\* video1 shows a blue **and** a red robot, so the automatic colour choice is arbitrary there
+(probe score blue 18.3 vs red 16.3); pass `--enemy` explicitly for such scenes.
+
+The detector alone reports a single target in 12–38% of frames. Adding the tracker raises the frames with a
+position to 57–96%, but a large part of that is coasting on the last velocity rather than a fresh measurement,
+and tracks are lost and re-initialised several times per video. Where several armor candidates are found, the
+tracker picks one in almost all frames (119 of 139 across the set).
+
+Detections are not always on the robot: the light-bar filter also fires on background objects, and in video0
+32 single detections were rejected by the tracker gate.
+
+**No ground truth.** These numbers say how often each stage produces an output, not whether the output is
+correct; sampled frames were checked by eye. Labelling a few hundred frames would be the next step.
 
 ## Limitations
 

@@ -39,9 +39,14 @@ def draw_v2(frame, bars, armors):
     return out
 
 
-def draw_track(frame, candidates, step):
+def draw_track(frame, candidates, step, trail=None):
     out = frame.copy()
     s = _scale(frame)
+    if trail:
+        points = [p for p in trail if p is not None]
+        for k in range(1, len(points)):
+            cv2.line(out, tuple(int(v) for v in points[k - 1]), tuple(int(v) for v in points[k]),
+                     RED, max(1, s), cv2.LINE_AA)
     for x, y in candidates:
         cv2.circle(out, (int(x), int(y)), 7 * s, ORANGE, 2 * s)
     if step.measurement is not None:
@@ -49,6 +54,38 @@ def draw_track(frame, candidates, step):
     if step.estimate is not None:
         cv2.drawMarker(out, tuple(int(v) for v in step.estimate), RED, cv2.MARKER_CROSS, 30 * s, 3 * s)
     return out
+
+
+STATE_COLOUR = {"update": GREEN, "init": GREEN, "coast": ORANGE, "lost": RED, "none": (200, 200, 200)}
+
+
+def draw_hud(img, frame_id, total, status, step, n_bars):
+    """Frame counter, detector status and tracker state, drawn in place."""
+    s = _scale(img)
+    lines = [
+        (f"frame {frame_id + 1}/{total}", (255, 255, 255)),
+        (f"armor_plate: {n_bars} bars -> {status}", GREEN if status == "one_armor" else ORANGE),
+        (f"tracker: {step.state}", STATE_COLOUR.get(step.state, (200, 200, 200))),
+    ]
+    pad, line_h = 8 * s, 22 * s
+    box_w = max(cv2.getTextSize(t, cv2.FONT_HERSHEY_SIMPLEX, 0.55 * s, s)[0][0] for t, _ in lines) + 2 * pad
+    overlay = img.copy()
+    cv2.rectangle(overlay, (0, 0), (box_w, int(pad + line_h * len(lines))), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.45, img, 0.55, 0, img)
+    for k, (text, colour) in enumerate(lines):
+        cv2.putText(img, text, (pad, int(pad + line_h * (k + 0.75))), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55 * s, colour, s, cv2.LINE_AA)
+    legend = "green bars/measurement  orange candidates  red estimate"
+    font_scale = 0.4 * s
+    while font_scale > 0.25:
+        text_w = cv2.getTextSize(legend, cv2.FONT_HERSHEY_SIMPLEX, font_scale, s)[0][0]
+        if text_w <= img.shape[1] - 2 * pad:
+            break
+        font_scale -= 0.05
+    origin = (pad, img.shape[0] - pad)
+    cv2.putText(img, legend, origin, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), 3 * s, cv2.LINE_AA)
+    cv2.putText(img, legend, origin, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), s, cv2.LINE_AA)
+    return img
 
 
 def contact_sheet(rows, tile_height=320):
