@@ -73,15 +73,16 @@ labels later forced (below), the same figure is 83.5%: a position in 51.1% of fr
 ## What 218 labelled frames changed
 
 Every number above counts outputs, not correct outputs. So I clicked the armor centre on every 5th frame of the
-recording with [`label_frames.py`](label_frames.py): 218 frames, 211 of them with a visible target.
-[`evaluate.py`](evaluate.py) then scores a position as correct when it lands within 2% of the frame width
-(25.6 px, roughly half an armor plate) of the click.
+recording with [`label_frames.py`](label_frames.py): 218 frames, 211 of them with a visible target, 228 plates
+in total because 17 frames show two plates at once. [`evaluate.py`](evaluate.py) scores a position as correct
+when it lands within 2% of the frame width (25.6 px, roughly half an armor plate) of any plate clicked in that
+frame.
 
 | | correct when it reports | of all frames with a target | median error |
 |---|---|---|---|
-| 2021 detector, frames where it reports one plate | **74.8%** (77/103) | 36.5% | **3.8 px** |
-| tracker, tuned (see below) | 60.1% (107/178) | **50.7%** | 9.6 px |
-| ‣ on frames where it used a measurement | | | 5.8 px |
+| 2021 detector, frames where it reports one plate | **82.5%** (85/103) | 40.3% | **3.3 px** |
+| tracker, tuned (see below) | 66.9% (119/178) | **56.4%** | 6.8 px |
+| ‣ on frames where it used a measurement | | | 4.8 px |
 | ‣ on frames where it was coasting | | | **67.0 px** |
 
 ![Distance to the clicked armor centre, per labelled frame](docs/figures/error_vs_ground_truth.png)
@@ -92,15 +93,15 @@ than 100 — there is very little in between.*
 
 Three things came out of this that no coverage metric could have told me:
 
-**The 2021 detector is accurate when it speaks.** Within 4 px of where I clicked, three times out of four. Its
-problem was never precision, it was that it only speaks in about a third of the frames that have a target.
+**The 2021 detector is accurate when it speaks.** Within 3.3 px of where I clicked, four times out of five. Its
+problem was never precision, it was that it only speaks in 40% of the frames that have a target.
 
-**The pairing rules, not the threshold, are the bottleneck.** In 55.0% of frames with a target, a correct plate
+**The pairing rules, not the threshold, are the bottleneck.** In 59.2% of frames with a target, a correct plate
 was among the candidates, but the four cascaded pairing rules either dropped it or reported several and gave
 up. That is the upper bound any re-tuning of those rules could reach, and it is where I would work next.
 
 **My headline tracking number was measuring the wrong thing.** Before labelling, the tracker with its original
-settings covered 96.9% of frames and I was pleased with it. Against the labels, only 46.0% of target frames got
+settings covered 96.9% of frames and I was pleased with it. Against the labels, only 49.8% of target frames got
 a *correct* position, its coasting estimates were off by a median of 96 px — four times the tolerance — and on
 frames with no target at all it still held a position 57% of the time. Coverage had rewarded exactly the
 behaviour that was hurting it.
@@ -112,10 +113,10 @@ coasting patience on the cached detections:
 
 | gate σ (px) | coasting frames | correct, of target frames | precision | error while measuring | error while coasting | position on empty frames |
 |---|---|---|---|---|---|---|
-| 10 | 2 (new default) | **50.7%** | 60.8% | 5.4 px | 66.4 px | 28.6% |
-| 10 | 0 (never coast) | 42.7% | **69.2%** | 5.9 px | — | **0.0%** |
-| 25 | 15 (old default) | 46.0% | 47.1% | 16.2 px | 95.9 px | 57.1% |
-| 50 | 15 | 36.5% | 37.4% | 33.4 px | 67.4 px | 42.9% |
+| 10 | 2 (new default) | **56.4%** | 67.6% | 4.1 px | 66.4 px | 28.6% |
+| 10 | 0 (never coast) | 47.9% | **77.7%** | 4.9 px | — | **0.0%** |
+| 25 | 15 (old default) | 49.8% | 51.0% | 14.4 px | 95.9 px | 57.1% |
+| 50 | 15 | 38.9% | 39.8% | 27.5 px | 67.4 px | 42.9% |
 
 Coasting buys coverage and pays for it in precision: every extra coasting frame adds positions that are mostly
 wrong. The defaults are now a gate of 0.8% of the frame width and 2 coasting frames. If a wrong position is
@@ -124,6 +125,17 @@ that trade-off visible instead of hiding it behind one number.
 
 This tuning used 211 labelled frames of one video, so a few percent is a handful of frames. It is enough to
 rank "coast for 15 frames" against "coast for 2", not enough to claim 10 px is better than 12.
+
+### Two ways these accuracies flatter the algorithms
+
+A position counts as correct when it is near **any** plate labelled in that frame, so the score does not check
+that the algorithm picked the plate a turret should actually engage: with two robots in view, hitting either
+one counts.
+
+And the second plates were added in a second pass over the frames where a reported position had missed, which
+is exactly where extra labels can turn a miss into a hit; frames the algorithms already got right were not
+re-checked. Adding labels can only raise these numbers, never lower them. The unbiased procedure is to label
+every visible plate in a random subset from the start, which is what I would do with more labelling time.
 
 ## Honest boundaries
 
@@ -136,9 +148,9 @@ rank "coast for 15 frames" against "coast for 2", not enough to claim 10 px is b
   exists.
 - The C++ `display()` function (PnP pose and ballistics) was never finished in 2021 and does not compile, so it
   is not replayed.
-- **The ground truth is 218 frames of one video, clicked by me**, one armor plate per frame, at every 5th
-  frame. The accuracy figures inherit that: a single scene, a single robot, my own idea of where the centre of
-  a plate is, and a tolerance I chose. The frame-level percentages in the earlier sections (how often a stage
+- **The ground truth is 218 frames of one video, clicked by me**, every 5th frame, 228 plates. The accuracy
+  figures inherit that: a single scene, my own idea of where the centre of a plate is, a tolerance I chose, and
+  the two biases described above. The frame-level percentages in the earlier sections (how often a stage
   produces any output) cover all 1086 frames.
 - The first version of the labelling tool divided the click coordinates by the display scale, which OpenCV had
   already applied. Every label was 14% too far from the origin and the first evaluation scored 0/103 correct.
