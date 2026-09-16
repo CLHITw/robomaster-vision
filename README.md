@@ -183,6 +183,15 @@ unlabelled frame.
 The default tolerance is 2% of the frame width (25.6 px at 1280), roughly half an armor plate at mid distance;
 `--tol-px` overrides it. Scoring logic is unit-tested in [`tests/test_metrics.py`](tests/test_metrics.py).
 
+A frame can show more than one armor plate, and a label that only marks one of them scores the detector wrong
+when it picks the other. `evaluate.py` therefore writes the frames where a reported position missed every label
+to `disputed_frames.txt`, so they can be re-checked without going through the whole video again:
+
+```bash
+python label_frames.py video2.avi --frames-file outputs/video2/disputed_frames.txt
+python tune_tracker.py video2.avi     # re-tune once the labels change
+```
+
 ## Running it
 
 ```bash

@@ -89,6 +89,9 @@ def main():
     p.add_argument("--start", type=int, default=0)
     p.add_argument("--end", type=int, default=0, help="last frame to consider (0 = end of video)")
     p.add_argument("--max", type=int, default=0, help="stop after this many sampled frames (0 = all)")
+    p.add_argument("--frames-file", type=Path, default=None,
+                   help="re-check only the frame ids listed in this file (one per line), e.g. the "
+                        "disputed_frames.txt written by evaluate.py")
     p.add_argument("--out", type=Path, default=None, help="default: labels/<video>.csv")
     p.add_argument("--display-height", type=int, default=900)
     args = p.parse_args()
@@ -100,14 +103,18 @@ def main():
     width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     end = args.end or total_frames
-    frame_ids = list(range(args.start, end, args.every))
+    if args.frames_file:
+        frame_ids = [int(line) for line in args.frames_file.read_text().split() if line.strip()]
+    else:
+        frame_ids = list(range(args.start, end, args.every))
     if args.max:
         frame_ids = frame_ids[:args.max]
 
     labels = load_labels(out)
     print(f"{len(frame_ids)} frames to label, {len(labels)} already in {out}")
 
-    index = next((i for i, f in enumerate(frame_ids) if f not in labels), 0)
+    # with an explicit list, start at the beginning: those frames are being re-checked
+    index = 0 if args.frames_file else next((i for i, f in enumerate(frame_ids) if f not in labels), 0)
     scale = min(1.0, args.display_height / height)
     window = "label armor centre"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)

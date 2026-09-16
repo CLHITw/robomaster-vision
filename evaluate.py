@@ -116,6 +116,21 @@ def main():
     error_plot(records, labels, tol_px, out_dir / "error_plot.png",
                f"{args.video.name}: distance to the clicked armor centre")
 
+    # frames where a reported position missed every label: worth a second look,
+    # a plate the labeller did not click may have been visible there
+    disputed = []
+    for f in sorted(labels):
+        if f >= len(records) or not labels[f]["points"]:
+            continue
+        r_f = records[f]
+        miss_det = r_f["status"] == "one_armor" and closest_pair(labels[f]["points"], r_f["candidates"]) > tol_px
+        miss_trk = (r_f["state"] == "update" and r_f["estimate"] is not None
+                    and closest_pair(labels[f]["points"], [r_f["estimate"]]) > tol_px)
+        if miss_det or miss_trk:
+            disputed.append(f)
+    (out_dir / "disputed_frames.txt").write_text("\n".join(str(f) for f in disputed))
+    result["disputed_frames"] = len(disputed)
+
     r = result
     print(f"\n{r['labelled_frames']} labelled frames: {r['frames_with_target']} with a target "
           f"({r['armor_plates_labelled']} plates, {r['frames_with_several_plates']} frames with several), "
@@ -139,6 +154,9 @@ def main():
     if "false_target_when_empty_pct" in r:
         print(f"\nframes labelled empty: detector reported a target in {r['false_target_when_empty_pct']}%, "
               f"tracker held a position in {r['tracker_position_when_empty_pct']}%")
+    print(f"\n{len(disputed)} frames where a reported position missed the label are listed in "
+          f"{out_dir / 'disputed_frames.txt'}; a second plate may have been visible there. Re-check with:")
+    print(f"  python label_frames.py {args.video.name} --frames-file {out_dir / 'disputed_frames.txt'}")
     print(f"\nwritten to {out_dir / 'evaluation.json'} and {out_dir / 'error_plot.png'}")
 
 
