@@ -126,7 +126,8 @@ def process(path, out_root, args):
         enemy, score = probe_enemy(path, args.proc_width)
         print(f"      enemy colour: {enemy} (probe score blue={score['blue']:.1f} red={score['red']:.1f})")
 
-    tracker = ArmorTracker(max_coast=args.max_coast, accel_std=args.accel_std, meas_std=args.meas_std)
+    meas_std = args.meas_std if args.meas_std else round(0.02 * width, 1)
+    tracker = ArmorTracker(max_coast=args.max_coast, accel_std=args.accel_std, meas_std=meas_std)
     records, samples = [], {"v1": [], "v1_bin": [], "v2": [], "v2_bin": [], "track": []}
     trail = []
     quit_all, paused = False, False
@@ -233,6 +234,7 @@ def process(path, out_root, args):
         "processed_resolution": f"{width}x{height}",
         "fps": round(fps, 2),
         "ms_per_frame": round(1000 * elapsed / n, 1),
+        "meas_std_px": meas_std,
         "v1_boxes_median": float(np.median([r["v1_boxes"] for r in records])),
         "v1_full_frame_box_pct": pct(sum(r["v1_full_frame_box"] for r in records), n),
         "v2_bars_median": float(np.median([r["v2_bars"] for r in records])),
@@ -270,7 +272,9 @@ def main():
     parser.add_argument("--samples", type=int, default=8, help="frames shown in the contact sheets")
     parser.add_argument("--max-frames", type=int, default=0, help="process at most this many frames (0 = all)")
     parser.add_argument("--max-coast", type=int, default=15, help="frames without a match before the track is dropped")
-    parser.add_argument("--meas-std", type=float, default=15.0, help="measurement noise of the armor centre (px)")
+    parser.add_argument("--meas-std", type=float, default=0.0,
+                        help="measurement noise of the armor centre in px; 0 (default) uses 2%% of the frame "
+                             "width, which keeps the gate the same size relative to the image")
     parser.add_argument("--accel-std", type=float, default=4.0, help="process noise (px / frame^2)")
     args = parser.parse_args()
 
