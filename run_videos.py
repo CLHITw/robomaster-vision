@@ -4,6 +4,7 @@ By default every video is played back in a window with the detections drawn on
 top, and the same annotated frames are written to an mp4 next to the results.
 
 Examples:
+    python run_videos.py                        # every video in the current folder
     python run_videos.py video0.avi
     python run_videos.py .                      # every video in this folder
     python run_videos.py "video*.mp4" --enemy red
@@ -252,7 +253,8 @@ def process(path, out_root, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("inputs", nargs="+", help="video files, directories or glob patterns")
+    parser.add_argument("inputs", nargs="*", default=["."],
+                        help="video files, directories or glob patterns (default: every video in this folder)")
     parser.add_argument("--out", type=Path, default=Path("outputs"))
     parser.add_argument("--enemy", choices=("auto", "blue", "red"), default="auto",
                         help="light-bar colour to detect; auto probes both on a few frames "
@@ -272,9 +274,14 @@ def main():
     parser.add_argument("--accel-std", type=float, default=4.0, help="process noise (px / frame^2)")
     args = parser.parse_args()
 
-    videos = collect_videos(args.inputs)
+    videos = collect_videos(args.inputs or ["."])
+    missing = [p for p in videos if not p.exists()]
+    videos = [p for p in videos if p.exists()]
+    for p in missing:
+        print(f"[skip] no such file: {p}")
     if not videos:
-        parser.error("no videos found")
+        parser.error(f"no videos found in {', '.join(str(i) for i in (args.inputs or ['.']))} "
+                     f"(looked for {', '.join(sorted(VIDEO_EXTS))})")
     args.out.mkdir(parents=True, exist_ok=True)
 
     summaries = []

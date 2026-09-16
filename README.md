@@ -37,9 +37,9 @@ not a compiled run of the C++ code.
 ```bash
 pip install -r requirements.txt
 python -m pytest
-python run_videos.py video0.avi          # one video, played back in a window
-python run_videos.py .                   # every video in this folder
-python run_videos.py . --no-show         # batch mode, no window
+python run_videos.py                      # every video in this folder, played back in a window
+python run_videos.py video0.avi          # just one video
+python run_videos.py --no-show           # batch mode, no window
 ```
 
 Each video is played back with the detections drawn on it, and the same annotated frames are written to
