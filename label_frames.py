@@ -4,9 +4,9 @@
 
 A window shows one sampled frame at a time:
 
-    left click   mark the centre of the armor plate the turret should aim at
-    x            no armor plate visible in this frame
+    left click   add the centre of a visible armor plate (click each one)
     n / space    next frame          b / p   previous frame
+    x            no armor plate visible in this frame
     u            clear this frame    q / Esc save and quit
 
 Labels are written to ``labels/<video>.csv`` after every change, so the work
@@ -23,19 +23,21 @@ from pathlib import Path
 
 import cv2
 
-HELP_LINES = ["click: armor centre", "x: no target", "n: next   b: back", "u: clear   q: save+quit"]
+HELP_LINES = ["click: add armor centre", "n/space: next   b: back",
+              "x: no target   u: clear", "q: save and quit"]
 
 
 def load_labels(path):
+    """frame -> {"visible": 0/1, "points": [(x, y), ...]}; one row per point."""
     labels = {}
     if path.exists():
         with open(path, newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
-                labels[int(row["frame"])] = {
-                    "visible": int(row["visible"]),
-                    "x": float(row["x"]) if row["x"] else None,
-                    "y": float(row["y"]) if row["y"] else None,
-                }
+                frame = int(row["frame"])
+                entry = labels.setdefault(frame, {"visible": int(row["visible"]), "points": []})
+                if row["x"]:
+                    entry["visible"] = 1
+                    entry["points"].append((float(row["x"]), float(row["y"])))
     return labels
 
 
@@ -46,21 +48,28 @@ def save_labels(path, labels, width, height, video):
         w.writerow(["frame", "visible", "x", "y", "width", "height", "video"])
         for frame in sorted(labels):
             lab = labels[frame]
-            w.writerow([frame, lab["visible"],
-                        "" if lab["x"] is None else round(lab["x"], 1),
-                        "" if lab["y"] is None else round(lab["y"], 1),
-                        width, height, video])
+            if lab["points"]:
+                for x, y in lab["points"]:
+                    w.writerow([frame, 1, round(x, 1), round(y, 1), width, height, video])
+            else:
+                w.writerow([frame, 0, "", "", width, height, video])
 
 
 def draw(frame, label, index, total, frame_id, n_done):
     img = frame.copy()
     s = max(1, round(img.shape[1] / 640))
-    if label is not None and label["visible"]:
-        p = (int(label["x"]), int(label["y"]))
+    for k, (x, y) in enumerate(label["points"] if label else []):
+        p = (int(x), int(y))
         cv2.drawMarker(img, p, (0, 0, 255), cv2.MARKER_CROSS, 40 * s, 2 * s)
         cv2.circle(img, p, 14 * s, (0, 0, 255), 2 * s)
-    status = "no target" if label is not None and not label["visible"] else (
-        "labelled" if label is not None else "unlabelled")
+        cv2.putText(img, str(k + 1), (p[0] + 16 * s, p[1] - 10 * s), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5 * s, (0, 0, 255), s, cv2.LINE_AA)
+    if label is None:
+        status = "unlabelled"
+    elif not label["points"]:
+        status = "no target"
+    else:
+        status = f"{len(label['points'])} armor plate(s) marked"
     lines = [f"sample {index + 1}/{total}   frame {frame_id}   {n_done} done", status] + HELP_LINES
     pad, line_h = 8 * s, 20 * s
     overlay = img.copy()
@@ -107,8 +116,9 @@ def main():
     click = {}
 
     def on_mouse(event, x, y, flags, _):
+        # OpenCV reports image coordinates for a WINDOW_NORMAL window, not window pixels
         if event == cv2.EVENT_LBUTTONDOWN:
-            click["pos"] = (x / scale, y / scale)
+            click["pos"] = (min(max(x, 0), width - 1), min(max(y, 0), height - 1))
 
     cv2.setMouseCallback(window, on_mouse)
 
@@ -130,12 +140,13 @@ def main():
             key = cv2.waitKey(20) & 0xFF
             if "pos" in click:
                 x, y = click.pop("pos")
-                labels[frame_id] = {"visible": 1, "x": x, "y": y}
+                entry = labels.setdefault(frame_id, {"visible": 1, "points": []})
+                entry["visible"] = 1
+                entry["points"].append((x, y))
                 save_labels(out, labels, width, height, args.video.name)
-                index += 1
-                break
+                continue  # stay on this frame so a second plate can be marked
             if key == ord("x"):
-                labels[frame_id] = {"visible": 0, "x": None, "y": None}
+                labels[frame_id] = {"visible": 0, "points": []}
                 save_labels(out, labels, width, height, args.video.name)
                 index += 1
                 break
@@ -156,8 +167,10 @@ def main():
     cap.release()
     cv2.destroyAllWindows()
     save_labels(out, labels, width, height, args.video.name)
-    visible = sum(1 for v in labels.values() if v["visible"])
-    print(f"saved {len(labels)} labels ({visible} with a target, {len(labels) - visible} marked empty) to {out}")
+    points = sum(len(v["points"]) for v in labels.values())
+    visible = sum(1 for v in labels.values() if v["points"])
+    print(f"saved {len(labels)} frames ({visible} with a target, {len(labels) - visible} marked empty, "
+          f"{points} armor plates in total) to {out}")
 
 
 if __name__ == "__main__":

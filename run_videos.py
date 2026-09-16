@@ -126,7 +126,7 @@ def process(path, out_root, args):
         enemy, score = probe_enemy(path, args.proc_width)
         print(f"      enemy colour: {enemy} (probe score blue={score['blue']:.1f} red={score['red']:.1f})")
 
-    meas_std = args.meas_std if args.meas_std else round(0.02 * width, 1)
+    meas_std = args.meas_std if args.meas_std else round(0.008 * width, 1)
     tracker = ArmorTracker(max_coast=args.max_coast, accel_std=args.accel_std, meas_std=meas_std)
     records, samples = [], {"v1": [], "v1_bin": [], "v2": [], "v2_bin": [], "track": []}
     trail = []
@@ -271,10 +271,10 @@ def main():
     parser.add_argument("--trail", type=int, default=30, help="number of past estimates drawn as a trail")
     parser.add_argument("--samples", type=int, default=8, help="frames shown in the contact sheets")
     parser.add_argument("--max-frames", type=int, default=0, help="process at most this many frames (0 = all)")
-    parser.add_argument("--max-coast", type=int, default=15, help="frames without a match before the track is dropped")
+    parser.add_argument("--max-coast", type=int, default=2, help="frames without a match before the track is dropped")
     parser.add_argument("--meas-std", type=float, default=0.0,
-                        help="measurement noise of the armor centre in px; 0 (default) uses 2%% of the frame "
-                             "width, which keeps the gate the same size relative to the image")
+                        help="measurement noise of the armor centre in px; 0 (default) uses 0.8%% of the "
+                             "frame width, the value tune_tracker.py found on the labelled frames")
     parser.add_argument("--accel-std", type=float, default=4.0, help="process noise (px / frame^2)")
     args = parser.parse_args()
 

@@ -54,9 +54,13 @@ class ArmorTracker:
     - Each frame, the candidate closest to the prediction (Mahalanobis
       distance) is used if it falls inside the gate; otherwise the track coasts.
     - After ``max_coast`` consecutive coasting frames the track is dropped.
+
+    The defaults (gate 10 px, 2 coasting frames) come from tune_tracker.py on
+    the labelled frames of video2.avi: coasting longer raises the share of
+    frames with *a* position but most of those positions are wrong.
     """
 
-    def __init__(self, gate=CHI2_2DOF_99, max_coast=15, accel_std=4.0, meas_std=15.0):
+    def __init__(self, gate=CHI2_2DOF_99, max_coast=2, accel_std=4.0, meas_std=10.0):
         self.gate = gate
         self.max_coast = max_coast
         self.accel_std = accel_std

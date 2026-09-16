@@ -13,6 +13,16 @@ def nearest(point, candidates):
     return min(math.hypot(px - cx, py - cy) for cx, cy in candidates)
 
 
+def closest_pair(points, candidates):
+    """Smallest distance between any labelled point and any candidate.
+
+    A frame can show more than one armor plate; hitting any of them counts.
+    """
+    if not points or not candidates:
+        return math.inf
+    return min(nearest(p, candidates) for p in points)
+
+
 def _stats(errors):
     errors = np.array([e for e in errors if math.isfinite(e)], dtype=float)
     if errors.size == 0:
@@ -27,12 +37,12 @@ def evaluate(records, labels, tol_px):
     ``records[i]`` describes frame ``i`` and holds ``candidates`` (list of armor
     centres the detector proposed), ``status`` (the 2021 program's verdict),
     ``state`` (tracker state) and ``estimate`` (tracker position or None).
-    ``labels`` maps a frame index to ``{"visible", "x", "y"}`` in the same pixel
-    coordinates. A position counts as correct when it is within ``tol_px`` of
-    the clicked centre.
+    ``labels`` maps a frame index to ``{"points": [(x, y), ...]}`` in the same
+    pixel coordinates; a frame may hold several armor plates. A position counts
+    as correct when it is within ``tol_px`` of any of them.
     """
-    visible = {f: lab for f, lab in labels.items() if lab["visible"] and f < len(records)}
-    empty = {f: lab for f, lab in labels.items() if not lab["visible"] and f < len(records)}
+    visible = {f: lab for f, lab in labels.items() if lab["points"] and f < len(records)}
+    empty = {f: lab for f, lab in labels.items() if not lab["points"] and f < len(records)}
 
     det_single_err, det_best_err, track_err = [], [], []
     track_err_by_state = {"update": [], "coast": []}
@@ -40,14 +50,14 @@ def evaluate(records, labels, tol_px):
 
     for f, lab in visible.items():
         r = records[f]
-        point = (lab["x"], lab["y"])
-        det_best_err.append(nearest(point, r["candidates"]))
+        points = lab["points"]
+        det_best_err.append(closest_pair(points, r["candidates"]))
         if r["status"] == "one_armor":
             det_single_frames += 1
-            det_single_err.append(nearest(point, r["candidates"]))
+            det_single_err.append(closest_pair(points, r["candidates"]))
         if r["estimate"] is not None:
             track_frames += 1
-            err = nearest(point, [r["estimate"]])
+            err = closest_pair(points, [r["estimate"]])
             track_err.append(err)
             if r["state"] in track_err_by_state:
                 track_err_by_state[r["state"]].append(err)
@@ -59,6 +69,8 @@ def evaluate(records, labels, tol_px):
         "tolerance_px": round(tol_px, 1),
         "labelled_frames": len(visible) + len(empty),
         "frames_with_target": n_vis,
+        "armor_plates_labelled": sum(len(lab["points"]) for lab in visible.values()),
+        "frames_with_several_plates": sum(1 for lab in visible.values() if len(lab["points"]) > 1),
         "frames_without_target": len(empty),
 
         # the 2021 detector on its own

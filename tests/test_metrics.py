@@ -18,9 +18,9 @@ def test_counts_hits_within_tolerance():
         rec([(300, 300)], "one_armor", "update", (300, 300)),   # both far from the label
         rec([], "no_armor", "coast", (105, 100)),               # only the tracker, correct
     ]
-    labels = {0: {"visible": 1, "x": 100, "y": 100},
-              1: {"visible": 1, "x": 100, "y": 100},
-              2: {"visible": 1, "x": 100, "y": 100}}
+    labels = {0: {"points": [(100, 100)]},
+              1: {"points": [(100, 100)]},
+              2: {"points": [(100, 100)]}}
     r = evaluate(records, labels, tol_px=25)
 
     assert r["frames_with_target"] == 3
@@ -33,7 +33,7 @@ def test_counts_hits_within_tolerance():
 
 def test_best_candidate_is_an_upper_bound_on_the_detector():
     records = [rec([(500, 500), (100, 100)], "too_many", "coast", None)]
-    labels = {0: {"visible": 1, "x": 100, "y": 100}}
+    labels = {0: {"points": [(100, 100)]}}
     r = evaluate(records, labels, tol_px=25)
 
     assert r["detector_single_frames"] == 0
@@ -43,7 +43,7 @@ def test_best_candidate_is_an_upper_bound_on_the_detector():
 
 def test_frames_without_a_target_measure_false_positives():
     records = [rec([(10, 10)], "one_armor", "update", (10, 10)), rec([], "no_armor", "none", None)]
-    labels = {0: {"visible": 0, "x": None, "y": None}, 1: {"visible": 0, "x": None, "y": None}}
+    labels = {0: {"points": []}, 1: {"points": []}}
     r = evaluate(records, labels, tol_px=25)
 
     assert r["frames_with_target"] == 0 and r["frames_without_target"] == 2
@@ -52,7 +52,7 @@ def test_frames_without_a_target_measure_false_positives():
 
 
 def test_labels_beyond_the_video_are_ignored():
-    r = evaluate([rec([], "no_armor", "none", None)], {5: {"visible": 1, "x": 1, "y": 1}}, tol_px=25)
+    r = evaluate([rec([], "no_armor", "none", None)], {5: {"points": [(1, 1)]}}, tol_px=25)
     assert r["labelled_frames"] == 0
 
 
@@ -61,8 +61,8 @@ def test_label_csv_round_trip(tmp_path):
     from label_frames import load_labels, save_labels
 
     path = tmp_path / "labels.csv"
-    labels = {0: {"visible": 1, "x": 123.4, "y": 56.7},
-              10: {"visible": 0, "x": None, "y": None}}
+    labels = {0: {"visible": 1, "points": [(123.4, 56.7)]},
+              10: {"visible": 0, "points": []}}
     save_labels(path, labels, 1280, 1024, "video2.avi")
     assert load_labels(path) == labels
     assert load_labels(tmp_path / "missing.csv") == {}

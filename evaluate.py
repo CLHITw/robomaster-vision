@@ -20,21 +20,19 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from replay.metrics import evaluate, nearest
+from replay.metrics import closest_pair, evaluate
 from replay.pipelines import armor_status, detect_armors
 from replay.tracking import ArmorTracker
 
 
 def load_labels(path, scale):
+    """frame -> {"points": [(x, y), ...]}, scaled into the processed resolution."""
     labels = {}
     with open(path, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
-            visible = int(row["visible"])
-            labels[int(row["frame"])] = {
-                "visible": visible,
-                "x": float(row["x"]) * scale if visible and row["x"] else None,
-                "y": float(row["y"]) * scale if visible and row["y"] else None,
-            }
+            entry = labels.setdefault(int(row["frame"]), {"points": []})
+            if row["x"]:
+                entry["points"].append((float(row["x"]) * scale, float(row["y"]) * scale))
     return labels
 
 
@@ -50,7 +48,7 @@ def replay(video, enemy, proc_width, meas_std, max_coast):
             frame = cv2.resize(frame, (proc_width, h), interpolation=cv2.INTER_AREA)
         if tracker is None:
             width = frame.shape[1]
-            tracker = ArmorTracker(max_coast=max_coast, meas_std=meas_std or round(0.02 * width, 1))
+            tracker = ArmorTracker(max_coast=max_coast, meas_std=meas_std or round(0.008 * width, 1))
         bars, armors, _ = detect_armors(frame, enemy)
         candidates = [(a.cx, a.cy) for a in armors]
         step = tracker.step(candidates)
@@ -61,13 +59,13 @@ def replay(video, enemy, proc_width, meas_std, max_coast):
 
 
 def error_plot(records, labels, tol_px, path, title):
-    frames = sorted(f for f, lab in labels.items() if lab["visible"] and f < len(records))
+    frames = sorted(f for f, lab in labels.items() if lab["points"] and f < len(records))
     det, trk = [], []
     for f in frames:
-        point = (labels[f]["x"], labels[f]["y"])
+        points = labels[f]["points"]
         r = records[f]
-        det.append(nearest(point, r["candidates"]) if r["status"] == "one_armor" else np.nan)
-        trk.append(nearest(point, [r["estimate"]]) if r["estimate"] is not None else np.nan)
+        det.append(closest_pair(points, r["candidates"]) if r["status"] == "one_armor" else np.nan)
+        trk.append(closest_pair(points, [r["estimate"]]) if r["estimate"] is not None else np.nan)
     fig, ax = plt.subplots(figsize=(11, 3.2))
     ax.axhline(tol_px, color="grey", ls="--", lw=1, label=f"tolerance {tol_px:.0f} px")
     ax.plot(frames, det, "o", ms=4, color="tab:orange", label="2021 detector (single armor frames)")
@@ -89,8 +87,8 @@ def main():
     p.add_argument("--labels", type=Path, default=None, help="default: labels/<video>.csv")
     p.add_argument("--enemy", choices=("blue", "red"), default="blue")
     p.add_argument("--proc-width", type=int, default=0, help="0 = native resolution")
-    p.add_argument("--meas-std", type=float, default=0.0, help="0 = 2%% of the frame width")
-    p.add_argument("--max-coast", type=int, default=15)
+    p.add_argument("--meas-std", type=float, default=0.0, help="0 = 0.8%% of the frame width")
+    p.add_argument("--max-coast", type=int, default=2)
     p.add_argument("--tol-frac", type=float, default=0.02, help="tolerance as a fraction of frame width")
     p.add_argument("--tol-px", type=float, default=0.0, help="tolerance in px (overrides --tol-frac)")
     p.add_argument("--out", type=Path, default=None, help="default: outputs/<video>/")
@@ -119,7 +117,8 @@ def main():
                f"{args.video.name}: distance to the clicked armor centre")
 
     r = result
-    print(f"\n{r['labelled_frames']} labelled frames: {r['frames_with_target']} with a target, "
+    print(f"\n{r['labelled_frames']} labelled frames: {r['frames_with_target']} with a target "
+          f"({r['armor_plates_labelled']} plates, {r['frames_with_several_plates']} frames with several), "
           f"{r['frames_without_target']} without. Tolerance {r['tolerance_px']} px.\n")
     print(f"{'':34s} {'correct':>10s} {'of frames':>11s} {'median err':>11s}")
     print(f"{'2021 detector, single-armor frames':34s} "

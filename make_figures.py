@@ -48,7 +48,7 @@ def run(video, enemy, proc_width, keep_ids=()):
             h = round(frame.shape[0] * proc_width / frame.shape[1])
             frame = cv2.resize(frame, (proc_width, h), interpolation=cv2.INTER_AREA)
         if meas_std is None:  # same resolution-relative gate as run_videos.py
-            meas_std = round(0.02 * frame.shape[1], 1)
+            meas_std = round(0.008 * frame.shape[1], 1)
             tracker = ArmorTracker(meas_std=meas_std)
         boxes, _ = threshold_boxes(frame)
         bars, armors, _ = detect_armors(frame, enemy)

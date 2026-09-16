@@ -61,38 +61,69 @@ target between frames.
 Detection per frame is the wrong abstraction — the robot does not disappear when a light bar does. So I added
 what the 2021 code lacked: a constant-velocity Kalman filter on the armor centre
 ([`replay/tracking.py`](replay/tracking.py)). Each frame it predicts the next position, accepts the candidate
-closest to that prediction if it falls inside a χ² gate, coasts when nothing matches, and gives up after 15
-frames. This is the predict / gate / associate structure used by the team's later tracking code, in a minimal
-2-D form.
+closest to that prediction if it falls inside a χ² gate, coasts when nothing matches, and drops the track after
+a few coasting frames. This is the predict / gate / associate structure used by the team's later tracking code,
+in a minimal 2-D form.
 
-| | Detector alone | With tracker |
-|---|---|---|
-| frames with a position | 48.3% | **96.9%** |
-| of which an actual measurement | 48.3% | 49.0% |
-| of which coasting on the prediction | — | 47.9% |
-| ambiguous frames resolved | 0 / 201 | **169 / 201** |
-| track losses over 1086 frames | — | 5 |
+With that in place the share of frames holding *some* position jumped from 48.3% to 96.9% with my first
+settings, and that is where I stopped the first time. It was the wrong place to stop. With the settings the
+labels later forced (below), the same figure is 83.5%: a position in 51.1% of frames from a real measurement,
+32.4% coasting, and 98 short tracks over 1086 frames instead of 5 long ones.
 
-The tracker nearly doubles the frames with a position and picks a candidate in 84% of the frames where the
-detector gave up because it saw several. Half of the output, though, is extrapolation rather than measurement,
-and extrapolation drifts — this fills short gaps, it does not invent detections.
+## What 218 labelled frames changed
 
-### The gate width is a knob I cannot honestly tune yet
+Every number above counts outputs, not correct outputs. So I clicked the armor centre on every 5th frame of the
+recording with [`label_frames.py`](label_frames.py): 218 frames, 211 of them with a visible target.
+[`evaluate.py`](evaluate.py) then scores a position as correct when it lands within 2% of the frame width
+(25.6 px, roughly half an armor plate) of the click.
 
-The gate decides which detections are believed. Widening it accepts more measurements, but also accepts jumps
-that are probably false positives:
+| | correct when it reports | of all frames with a target | median error |
+|---|---|---|---|
+| 2021 detector, frames where it reports one plate | **74.8%** (77/103) | 36.5% | **3.8 px** |
+| tracker, tuned (see below) | 60.1% (107/178) | **50.7%** | 9.6 px |
+| ‣ on frames where it used a measurement | | | 5.8 px |
+| ‣ on frames where it was coasting | | | **67.0 px** |
 
-| measurement σ (px) | measurements used | ambiguous resolved | single detections rejected | accepted jumps > 100 px |
-|---|---|---|---|---|
-| 15 | 42.2% | 150/201 | 217 | 6.6% |
-| 25 (default: 2% of frame width) | 49.0% | 169/201 | 162 | 8.7% |
-| 35 | 56.8% | 195/201 | 103 | 10.4% |
-| 50 | 61.7% | 196/201 | 51 | 16.4% |
+![Distance to the clicked armor centre, per labelled frame](docs/figures/error_vs_ground_truth.png)
 
-Without labelled frames, "more measurements used" is not evidence of "more correct". Rather than picking the
-row with the nicest number, the default scales with the frame size (2% of the width), which keeps the gate the
-same size relative to the image across cameras. Turning these percentages into accuracies needs ground truth,
-which is what the labelling tool below is for.
+*Each orange dot is a frame where the 2021 detector reported a single plate; the blue line is the tracker.
+Below the dashed line counts as correct. The detector is either right to within a few pixels or wrong by more
+than 100 — there is very little in between.*
+
+Three things came out of this that no coverage metric could have told me:
+
+**The 2021 detector is accurate when it speaks.** Within 4 px of where I clicked, three times out of four. Its
+problem was never precision, it was that it only speaks in about a third of the frames that have a target.
+
+**The pairing rules, not the threshold, are the bottleneck.** In 55.0% of frames with a target, a correct plate
+was among the candidates, but the four cascaded pairing rules either dropped it or reported several and gave
+up. That is the upper bound any re-tuning of those rules could reach, and it is where I would work next.
+
+**My headline tracking number was measuring the wrong thing.** Before labelling, the tracker with its original
+settings covered 96.9% of frames and I was pleased with it. Against the labels, only 46.0% of target frames got
+a *correct* position, its coasting estimates were off by a median of 96 px — four times the tolerance — and on
+frames with no target at all it still held a position 57% of the time. Coverage had rewarded exactly the
+behaviour that was hurting it.
+
+### Re-tuning on the labels
+
+[`tune_tracker.py`](tune_tracker.py) detects the video once and then scores 25 combinations of gate width and
+coasting patience on the cached detections:
+
+| gate σ (px) | coasting frames | correct, of target frames | precision | error while measuring | error while coasting | position on empty frames |
+|---|---|---|---|---|---|---|
+| 10 | 2 (new default) | **50.7%** | 60.8% | 5.4 px | 66.4 px | 28.6% |
+| 10 | 0 (never coast) | 42.7% | **69.2%** | 5.9 px | — | **0.0%** |
+| 25 | 15 (old default) | 46.0% | 47.1% | 16.2 px | 95.9 px | 57.1% |
+| 50 | 15 | 36.5% | 37.4% | 33.4 px | 67.4 px | 42.9% |
+
+Coasting buys coverage and pays for it in precision: every extra coasting frame adds positions that are mostly
+wrong. The defaults are now a gate of 0.8% of the frame width and 2 coasting frames. If a wrong position is
+worse than no position — which it is for a turret — never coasting is the better setting, and the tool makes
+that trade-off visible instead of hiding it behind one number.
+
+This tuning used 211 labelled frames of one video, so a few percent is a handful of frames. It is enough to
+rank "coast for 15 frames" against "coast for 2", not enough to claim 10 px is better than 12.
 
 ## Honest boundaries
 
@@ -105,9 +136,14 @@ which is what the labelling tool below is for.
   exists.
 - The C++ `display()` function (PnP pose and ballistics) was never finished in 2021 and does not compile, so it
   is not replayed.
-- **The percentages above have no ground truth behind them.** They say how often a stage produced an output,
-  not whether the output was correct; sampled frames were checked by eye. `label_frames.py` and `evaluate.py`
-  exist to replace them with measured accuracies, and this section will be updated once frames are labelled.
+- **The ground truth is 218 frames of one video, clicked by me**, one armor plate per frame, at every 5th
+  frame. The accuracy figures inherit that: a single scene, a single robot, my own idea of where the centre of
+  a plate is, and a tolerance I chose. The frame-level percentages in the earlier sections (how often a stage
+  produces any output) cover all 1086 frames.
+- The first version of the labelling tool divided the click coordinates by the display scale, which OpenCV had
+  already applied. Every label was 14% too far from the origin and the first evaluation scored 0/103 correct.
+  The clicks were recoverable by scaling them back; the original file is kept as
+  `labels/video2.buggy-coordinates.csv.bak`. A test now pins the label round trip.
 - The tracker, the harness, the tests and this README are from 2026 and were written with help from an AI
   coding assistant. All numbers come from the scripts in this repository.
 
