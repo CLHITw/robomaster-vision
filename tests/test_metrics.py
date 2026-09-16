@@ -54,3 +54,15 @@ def test_frames_without_a_target_measure_false_positives():
 def test_labels_beyond_the_video_are_ignored():
     r = evaluate([rec([], "no_armor", "none", None)], {5: {"visible": 1, "x": 1, "y": 1}}, tol_px=25)
     assert r["labelled_frames"] == 0
+
+
+def test_label_csv_round_trip(tmp_path):
+    """The click tool must be able to reload exactly what it wrote (resume after a crash)."""
+    from label_frames import load_labels, save_labels
+
+    path = tmp_path / "labels.csv"
+    labels = {0: {"visible": 1, "x": 123.4, "y": 56.7},
+              10: {"visible": 0, "x": None, "y": None}}
+    save_labels(path, labels, 1280, 1024, "video2.avi")
+    assert load_labels(path) == labels
+    assert load_labels(tmp_path / "missing.csv") == {}
