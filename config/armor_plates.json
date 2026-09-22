@@ -1,0 +1,9 @@
+{
+  "source": "public RoboMaster figures, widely used in open-source RoboMaster vision code; I no longer have the measurements the team used in 2021, so these are unverified and every number here is a parameter, not a constant",
+  "unit": "mm",
+  "measured_between": "the centres of the two light bars horizontally, and the ends of one light bar vertically",
+  "plates": {
+    "small": {"width": 135.0, "height": 55.0},
+    "large": {"width": 230.0, "height": 55.0}
+  }
+}

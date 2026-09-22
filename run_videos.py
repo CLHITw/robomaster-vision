@@ -36,6 +36,7 @@ import cv2
 import numpy as np
 
 from replay.pipelines import armor_status, detect_armors, threshold_boxes
+from replay.pose import load_camera, load_plate, scale_camera, solve_armor
 from replay.tracking import ArmorTracker
 from replay.visualize import (contact_sheet, draw_hud, draw_track, draw_v1, draw_v2,
                               label, trajectory_plot)
@@ -126,6 +127,12 @@ def process(path, out_root, args):
         enemy, score = probe_enemy(path, args.proc_width)
         print(f"      enemy colour: {enemy} (probe score blue={score['blue']:.1f} red={score['red']:.1f})")
 
+    pose_config = None
+    if not args.no_pose:
+        camera_matrix, distortion = load_camera(args.camera)
+        # the calibration belongs to the full-size frame; rescale it with the frame
+        pose_config = (scale_camera(camera_matrix, scale), distortion, load_plate(args.plate, args.plates))
+
     meas_std = args.meas_std if args.meas_std else round(0.008 * width, 1)
     tracker = ArmorTracker(max_coast=args.max_coast, accel_std=args.accel_std, meas_std=meas_std)
     records, samples = [], {"v1": [], "v1_bin": [], "v2": [], "v2_bin": [], "track": []}
@@ -150,6 +157,16 @@ def process(path, out_root, args):
         trail.append(step.estimate)
         trail = trail[-args.trail:]
 
+        depth_mm = None
+        if pose_config is not None and step.measurement is not None:
+            for a in armors:
+                if abs(a.cx - step.measurement[0]) < 1e-6 and abs(a.cy - step.measurement[1]) < 1e-6:
+                    camera_matrix, distortion, (plate_w, plate_h) = pose_config
+                    r = solve_armor(bars[a.bar_i], bars[a.bar_j], camera_matrix, distortion, plate_w, plate_h)
+                    if r is not None:
+                        depth_mm = r["depth_mm"]
+                    break
+
         full_frame = any(w * h > 0.5 * width * height for (_, _, w, h) in boxes)
         records.append({
             "frame": frame_id,
@@ -160,12 +177,13 @@ def process(path, out_root, args):
             "meas_y": None if step.measurement is None else round(step.measurement[1], 1),
             "est_x": None if step.estimate is None else round(step.estimate[0], 1),
             "est_y": None if step.estimate is None else round(step.estimate[1], 1),
+            "depth_mm": None if depth_mm is None else round(depth_mm, 1),
         })
 
         annotated = None
         if writer is not None or window is not None or frame_id in sample_ids:
             annotated = draw_track(draw_v2(frame, bars, armors), candidates, step, trail)
-            draw_hud(annotated, frame_id, total, status, step, len(bars))
+            draw_hud(annotated, frame_id, total, status, step, len(bars), depth_mm)
         if writer is not None:
             writer.write(annotated)
         if frame_id in sample_ids:
@@ -248,6 +266,10 @@ def process(path, out_root, args):
         "track_inits": state_count["init"],
         "track_lost": state_count["lost"],
     }
+    depths = [r["depth_mm"] for r in records if r["depth_mm"] is not None]
+    if depths:
+        summary["pose_frames"] = len(depths)
+        summary["pose_median_depth_m"] = round(float(np.median(depths)) / 1000, 2)
     with open(out_dir / "summary.json", "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2, ensure_ascii=False)
     return summary, quit_all
@@ -269,6 +291,11 @@ def main():
                         help="downscale frames to this width before detection; the 2021 thresholds "
                              "(light bar height 10-150 px) were written for roughly this size. 0 keeps the original")
     parser.add_argument("--trail", type=int, default=30, help="number of past estimates drawn as a trail")
+    parser.add_argument("--no-pose", action="store_true", help="do not solve the plate distance")
+    parser.add_argument("--plate", choices=("small", "large"), default="small",
+                        help="armor plate size used for the distance (config/armor_plates.json)")
+    parser.add_argument("--camera", type=Path, default=None, help="camera json (default: config/camera_2021.json)")
+    parser.add_argument("--plates", type=Path, default=None, help="plate json (default: config/armor_plates.json)")
     parser.add_argument("--samples", type=int, default=8, help="frames shown in the contact sheets")
     parser.add_argument("--max-frames", type=int, default=0, help="process at most this many frames (0 = all)")
     parser.add_argument("--max-coast", type=int, default=2, help="frames without a match before the track is dropped")

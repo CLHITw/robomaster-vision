@@ -150,6 +150,39 @@ is exactly where extra labels can turn a miss into a hit; frames the algorithms 
 re-checked. Adding labels can only raise these numbers, never lower them. The unbiased procedure is to label
 every visible plate in a random subset from the start, which is what I would do with more labelling time.
 
+## Finishing the pose solver, five years late
+
+The 2021 C++ had one more stage, `display()`: turn the plate in the image into a position in metres, so the
+turret knows where to aim. It never compiled, and I had forgotten most of the geometry. Since the original
+recording is 1280×1024 and the calibration numbers written down in 2021 are for exactly that camera, the stage
+can be finished now: [`replay/pose.py`](replay/pose.py) takes the four light-bar endpoints as the plate corners,
+the plate size in millimetres, the intrinsics and distortion, and calls `cv2.solvePnP`.
+
+```bash
+python solve_pose.py clips/robot_clip.mp4
+```
+
+![Plate distance and reprojection error](docs/figures/pose.png)
+
+On the committed clip it solves 165 of 300 frames: a median distance of **3.12 m** (range 1.87–5.45 m) with a
+median **reprojection error of 0.72 px**. There is no ground-truth distance for this footage, so instead of
+claiming an accuracy the tool reports two self-checks:
+
+- **Reprojection error** — project the solved plate back into the image and compare with the corners it came
+  from. A wrong corner order or wrong intrinsics shows up here immediately.
+- **An independent pinhole estimate** `d = fx · W / w_px` from the apparent width. It agrees with PnP when the
+  plate faces the camera (ratio 1.02 at the 10th percentile) and reads *further* when the plate turns away and
+  looks narrower — the orange spikes in the figure. That is the expected disagreement, and seeing it is how I
+  know both are behaving.
+
+Two honest caveats. The plate is assumed to be a standard small armor plate, 135 × 55 mm, from public
+RoboMaster figures in [`config/armor_plates.json`](config/armor_plates.json); I no longer have the measurements
+our team used, and a wrong width scales every distance by the same factor. And the intrinsics belong to the
+full-size frame: if frames are downscaled the camera matrix has to be scaled with them, which is a test in
+[`tests/test_pose.py`](tests/test_pose.py) precisely because it is such an easy mistake — at `--proc-width 720`
+the same clip reads 2.88 m instead of 3.12 m, the rest of that gap coming from coarser light-bar endpoints
+after the resize. Run at native resolution when the numbers matter.
+
 ## Honest boundaries
 
 - The stage-1 and stage-2 algorithms are the 2021 C++ code, kept unchanged under `original_2021/` (tag
@@ -161,8 +194,8 @@ every visible plate in a random subset from the start, which is what I would do 
   uses the same OpenCV calls, parameters and branch conditions; each deviation is marked `NOTE` in
   [`replay/pipelines.py`](replay/pipelines.py). The 2021 machine (Ubuntu, OpenCV built from source) no longer
   exists.
-- The C++ `display()` function (PnP pose and ballistics) was never finished in 2021 and does not compile, so it
-  is not replayed.
+- The C++ `display()` function was never finished in 2021 and does not compile. Its pose part is reimplemented
+  in `replay/pose.py` as 2026 work, not replayed; the ballistics part is not implemented at all.
 - **The ground truth is 218 frames of one video, clicked by me**, every 5th frame, 228 plates. The accuracy
   figures inherit that: a single scene, my own idea of where the centre of a plate is, a tolerance I chose, and
   the two biases described above. The frame-level percentages in the earlier sections (how often a stage
@@ -231,6 +264,7 @@ python -m pytest                                 # 14 tests on synthetic frames
 python run_videos.py clips/robot_clip.mp4        # plays it back with the detections drawn on
 python evaluate.py clips/robot_clip.mp4          # scores both stages against the labels
 python tune_tracker.py clips/robot_clip.mp4      # the gate/patience sweep, on the clip
+python solve_pose.py clips/robot_clip.mp4        # plate distance from PnP, with its self-checks
 ```
 
 On the clip the detector is right in 26 of the 29 frames where it reports a plate. The numbers quoted in this
@@ -268,3 +302,5 @@ Each video is played back with the detections drawn on it and written to `output
 | [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
 | [`tests/`](tests) | Unit tests on synthetic frames: detection, colour selection, pairing rules, tracker gating, scoring. |
 | [`clips/`](clips), [`labels/`](labels) | A six-second cut of the original recording and the frames I labelled by hand. |
+| [`solve_pose.py`](solve_pose.py), [`replay/pose.py`](replay/pose.py) | The plate pose: PnP, its self-checks, and the 2026 finish of the 2021 `display()`. |
+| [`config/`](config) | Camera calibration from 2021 and the armor plate dimensions, both as data rather than constants. |

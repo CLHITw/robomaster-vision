@@ -59,7 +59,7 @@ def draw_track(frame, candidates, step, trail=None):
 STATE_COLOUR = {"update": GREEN, "init": GREEN, "coast": ORANGE, "lost": RED, "none": (200, 200, 200)}
 
 
-def draw_hud(img, frame_id, total, status, step, n_bars):
+def draw_hud(img, frame_id, total, status, step, n_bars, depth_mm=None):
     """Frame counter, detector status and tracker state, drawn in place."""
     s = _scale(img)
     lines = [
@@ -67,6 +67,8 @@ def draw_hud(img, frame_id, total, status, step, n_bars):
         (f"armor_plate: {n_bars} bars -> {status}", GREEN if status == "one_armor" else ORANGE),
         (f"tracker: {step.state}", STATE_COLOUR.get(step.state, (200, 200, 200))),
     ]
+    if depth_mm is not None:
+        lines.append((f"plate distance: {depth_mm / 1000:.2f} m", (255, 255, 255)))
     pad, line_h = 8 * s, 22 * s
     box_w = max(cv2.getTextSize(t, cv2.FONT_HERSHEY_SIMPLEX, 0.55 * s, s)[0][0] for t, _ in lines) + 2 * pad
     overlay = img.copy()

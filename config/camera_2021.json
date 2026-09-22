@@ -1,0 +1,18 @@
+{
+  "name": "HITCRT industrial camera, 2021 season",
+  "image_size": [1280, 1024],
+  "source": "the calibration numbers written down in original_2021/carcarcar.cpp in 2021; the calibration session itself was not kept, so these are taken as given",
+  "camera_matrix": [
+    [2519.13284939712, 0.749381889519802, 614.938139894739],
+    [0.0, 2517.17058777089, 513.456628760370],
+    [0.0, 0.0, 1.0]
+  ],
+  "distortion": [
+    -0.0401129361656092,
+    -0.506814027965233,
+    0.00106468623922559,
+    -0.000269864370417353,
+    10.1144125951595
+  ],
+  "note": "The principal point (615, 513) sits close to the centre of a 1280x1024 image, which is the first thing that should hold for a plausible calibration."
+}

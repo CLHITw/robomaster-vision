@@ -52,6 +52,10 @@ class LightBar:
     width: float   # short side of the min-area rectangle
     height: float  # long side
     angle: float   # from fitEllipse, degrees in [0, 180)
+    # endpoints of the long axis, from the min-area rectangle. The 2021 code did
+    # not need them; the 2026 pose solver uses them as the armor plate corners.
+    top: tuple = (0.0, 0.0)
+    bottom: tuple = (0.0, 0.0)
 
 
 @dataclass
@@ -90,7 +94,8 @@ def find_light_bars(binary):
         if len(c) < 10:
             continue
         (cx, cy), _, angle = cv2.fitEllipse(c)
-        _, (w, h), _ = cv2.minAreaRect(c)
+        rect = cv2.minAreaRect(c)
+        _, (w, h), _ = rect
         height, width = max(w, h), min(w, h)
         if width / height > L_WH_RAT:
             continue
@@ -106,8 +111,21 @@ def find_light_bars(binary):
         if w2 > rows - y:  # the C++ code compares the width here, not the height
             continue
         if (angle < 45 or angle > 135) and 10 < height < 150:
-            bars.append(LightBar(cx, cy, width, height, angle))
+            top, bottom = _long_axis_endpoints(rect)
+            bars.append(LightBar(cx, cy, width, height, angle, top, bottom))
     return bars
+
+
+def _long_axis_endpoints(rect):
+    """Midpoints of the two short sides of a min-area rectangle, top one first."""
+    box = cv2.boxPoints(rect)
+    # pair each corner with the next one; the two shortest sides are the ends
+    sides = [((box[i] + box[(i + 1) % 4]) / 2.0,
+              float(np.linalg.norm(box[i] - box[(i + 1) % 4]))) for i in range(4)]
+    sides.sort(key=lambda s: s[1])
+    (a, _), (b, _) = sides[0], sides[1]
+    top, bottom = (a, b) if a[1] <= b[1] else (b, a)
+    return (float(top[0]), float(top[1])), (float(bottom[0]), float(bottom[1]))
 
 
 def match_armors(bars):
