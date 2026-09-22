@@ -153,8 +153,10 @@ every visible plate in a random subset from the start, which is what I would do 
 ## Honest boundaries
 
 - The stage-1 and stage-2 algorithms are the 2021 C++ code, kept unchanged under `original_2021/` (tag
-  `original-2021`). `carcarcar.cpp` is a scratch file: it also contains pasted OpenCV `groupRectangles` source
-  and camera calibration notes, which are not my code.
+  `original-2021`). `carcarcar.cpp` is a scratch file from that time: besides my own attempt it holds a copy of
+  OpenCV's `groupRectangles` implementation, which I had pasted in while trying the cascade face detector and
+  reading how it merges overlapping boxes. That block is OpenCV's code and stays under OpenCV's licence; the
+  rest of the file, including the calibration numbers, is mine.
 - The measurements come from a **Python replay** of that C++ code, not from running the C++ binary. The replay
   uses the same OpenCV calls, parameters and branch conditions; each deviation is marked `NOTE` in
   [`replay/pipelines.py`](replay/pipelines.py). The 2021 machine (Ubuntu, OpenCV built from source) no longer
