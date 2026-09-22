@@ -219,12 +219,25 @@ python tune_tracker.py video2.avi     # re-tune once the labels change
 
 ## Running it
 
+A six-second cut of the original recording is committed at `clips/robot_clip.mp4` (300 frames, 1280×1024,
+untouched apart from the re-encoding), together with the labels for those frames, so everything below runs
+after a clone:
+
 ```bash
 pip install -r requirements.txt
-python -m pytest                                   # 13 tests on synthetic frames
+python -m pytest                                 # 14 tests on synthetic frames
+python run_videos.py clips/robot_clip.mp4        # plays it back with the detections drawn on
+python evaluate.py clips/robot_clip.mp4          # scores both stages against the labels
+python tune_tracker.py clips/robot_clip.mp4      # the gate/patience sweep, on the clip
+```
+
+On the clip the detector is right in 26 of the 29 frames where it reports a plate. The numbers quoted in this
+README come from the full 1086-frame recording, which is 105 MB and not committed; `--proc-width 0` keeps the
+native resolution the 2021 thresholds were written for.
+
+```bash
 python run_videos.py                               # every video in this folder, played back in a window
-python run_videos.py video2.avi --proc-width 0
-python make_figures.py video2.avi --proc-width 0   # rebuild the figures above
+python make_figures.py video2.avi --proc-width 0   # rebuild the figures above, from the full recording
 ```
 
 Each video is played back with the detections drawn on it and written to `outputs/<name>/annotated.mp4`;
@@ -251,4 +264,5 @@ Each video is played back with the detections drawn on it and written to `output
 | [`label_frames.py`](label_frames.py) | Click tool for ground-truth armor centres. |
 | [`evaluate.py`](evaluate.py) | Scores detector and tracker against those labels. |
 | [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
-| [`tests/`](tests) | Unit tests on synthetic frames: detection, colour selection, pairing rules, tracker gating. |
+| [`tests/`](tests) | Unit tests on synthetic frames: detection, colour selection, pairing rules, tracker gating, scoring. |
+| [`clips/`](clips), [`labels/`](labels) | A six-second cut of the original recording and the frames I labelled by hand. |

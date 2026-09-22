@@ -10,3 +10,5 @@ videos/
 *.avi
 *.mp4
 *.mov
+# the short demo clip is committed on purpose (.gitignore has no inline comments)
+!clips/*.mp4
