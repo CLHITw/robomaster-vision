@@ -10,6 +10,19 @@ unchanged, and a 2026 test harness that runs them on the original footage and me
 *The original 2021 recording (1280×1024, 50 fps). Green: light bars found by the 2021 detector. Red: the
 position estimate of the tracker added in 2026, with its recent path.*
 
+## In one minute
+
+| | |
+|---|---|
+| **2021, attempt 1** — grayscale threshold | never finds the robot: 52 boxes per frame, one covering the whole image in every frame |
+| **2021, attempt 2** — colour + light-bar geometry | reports a target in 48.3% of frames; **82.5% of those are correct** (median error 3.3 px) |
+| **2026, tracker** — Kalman filter, gating, association | a correct position in **56.4%** of frames with a target, up from 40.3% |
+| **The point** | before labelling I thought the tracker covered 96.9% of frames. 218 hand-labelled frames showed half of those positions were wrong, and I re-tuned against the labels instead of the coverage number. |
+
+Read [what 218 labelled frames changed](#what-218-labelled-frames-changed) for that part, or
+[running it](#running-it) to try it on your own video. The 2021 C++ code is in
+[`original_2021/`](original_2021), unchanged.
+
 ## Attempt 1: the robot is the bright thing (wrong)
 
 [`original_2021/carcarcar.cpp`](original_2021/carcarcar.cpp) converts the frame to grayscale, blurs it three
