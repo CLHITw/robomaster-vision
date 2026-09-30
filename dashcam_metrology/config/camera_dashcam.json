@@ -1,0 +1,41 @@
+{
+  "name": "TIESFONG dash camera, RTSP preview stream",
+  "image_size": [
+    640,
+    360
+  ],
+  "source": "checkerboard calibration, 36 images, 8x5 inner corners, square 24.50 mm",
+  "camera_matrix": [
+    [
+      339.31771477283604,
+      0.0,
+      340.2622446175177
+    ],
+    [
+      0.0,
+      339.2691733084817,
+      192.49695737759995
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "distortion": [
+    -0.36367950879947025,
+    0.1418393814495196,
+    -3.594415833305727e-05,
+    0.00033766343447910285,
+    -0.025688318574507926
+  ],
+  "model": "pinhole",
+  "square_size_mm": 24.5,
+  "rms_reprojection_px": 0.3982,
+  "n_images": 36,
+  "fov_deg": [
+    86.6,
+    55.9
+  ],
+  "note": "Bound to the 640x360 RTSP preview stream. Rescale fx, fy, cx, cy with scale_camera() before using at any other resolution."
+}

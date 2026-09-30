@@ -1,0 +1,40 @@
+{
+  "name": "TIESFONG dash camera, RTSP preview stream",
+  "image_size": [
+    640,
+    360
+  ],
+  "source": "checkerboard calibration, 36 images, 8x5 inner corners, square 24.50 mm",
+  "camera_matrix": [
+    [
+      338.1271808304359,
+      0.0,
+      343.9213717199957
+    ],
+    [
+      0.0,
+      337.24029390974016,
+      192.4197772891754
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "distortion": [
+    -0.09437417352019967,
+    0.04037649062867483,
+    -0.023780857908213937,
+    0.0068306036094609585
+  ],
+  "model": "fisheye",
+  "square_size_mm": 24.5,
+  "rms_reprojection_px": 0.3617,
+  "n_images": 36,
+  "fov_deg": [
+    86.6,
+    56.2
+  ],
+  "note": "Bound to the 640x360 RTSP preview stream. Rescale fx, fy, cx, cy with scale_camera() before using at any other resolution."
+}
