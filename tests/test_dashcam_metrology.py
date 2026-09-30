@@ -229,3 +229,46 @@ def test_the_distortion_model_is_not_invertible_at_the_corners(camera):
         "the top-left corner does not round-trip; anything metric that reaches "
         "the image border needs to know this"
     )
+
+
+def test_intrinsics_do_not_depend_on_the_assumed_square_size():
+    """The checkerboard's metric size cannot contaminate the focal length.
+
+    Scaling every object point by k is absorbed entirely by scaling every
+    estimated board distance by k; the projection is unchanged, so K comes out
+    identical. Getting the printed square size wrong therefore ruins the
+    calibration's own extrinsics and nothing else — which is why the dash-camera
+    distances survived an uncertain square size, while the ArUco marker's size,
+    which scales the answer directly, did not.
+    """
+    cols, rows = 8, 5
+    size = (640, 360)
+    K_true = np.array([[330.0, 0.0, 322.0], [0.0, 331.0, 178.0], [0.0, 0.0, 1.0]])
+    D_true = np.array([-0.34, 0.12, 0.0006, -0.0004, -0.02])
+
+    grid = np.zeros((rows * cols, 3), np.float32)
+    grid[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2)
+
+    rng = np.random.default_rng(9)
+    poses, img_pts = [], []
+    while len(img_pts) < 15:
+        rvec = rng.uniform(-0.4, 0.4, 3)
+        tvec = [rng.uniform(-60, 60), rng.uniform(-40, 40), rng.uniform(300, 600)]
+        pts = project(grid * 24.5, rvec, tvec, K_true, D_true)
+        if pts.min() < 5 or pts[:, 0].max() > size[0] - 5 or pts[:, 1].max() > size[1] - 5:
+            continue
+        poses.append((rvec, tvec))
+        img_pts.append(pts.reshape(-1, 1, 2).astype(np.float32))
+
+    results = {}
+    for square in (24.5, 23.55, 25.0):
+        obj = [(grid * square).copy() for _ in img_pts]
+        _, K, _, _, tvecs = cv2.calibrateCamera(obj, img_pts, size, None, None)
+        results[square] = (K, np.linalg.norm(tvecs[0]))
+
+    base = results[24.5][0]
+    for square, (K, _) in results.items():
+        assert np.allclose(K, base, rtol=1e-6), "K must not move with the assumed size"
+
+    # the board distances, on the other hand, scale exactly with it
+    assert results[25.0][1] / results[24.5][1] == pytest.approx(25.0 / 24.5, rel=1e-4)

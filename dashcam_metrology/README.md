@@ -151,21 +151,53 @@ wide would produce when the solver is told it is 170 mm. Distance from
 `solvePnP` is proportional to the assumed object size, so the data can be
 rescaled without recollecting:
 
+That inference was then checked against a ruler, by a route that does not touch
+the camera at all. The printed sheets carry a 100 mm rule. Measuring an A4 sheet
+with that printed rule gives 309 mm where the true long edge is 297.0 mm, so the
+print came out at 297/309 = 0.9612 of nominal, and a marker drawn at 170 mm is
+physically **163.40 mm**.
+
+| | marker side |
+|---|---|
+| inferred from the distance fit | 163.61 mm |
+| measured, via print scale from A4 | 163.40 mm |
+| difference | 0.21 mm, 0.13% |
+
+Two independent routes — one optical, one with a ruler — agreeing to a fifth of
+a millimetre. Recomputing with the measured size:
+
 | position (mm) | n | solved (mm) | s.d. | error | reprojection |
 |---:|---:|---:|---:|---:|---:|
-| 297 | 40 | 310.0 | 0.4 | +4.4% | 0.26 px |
-| 594 | 40 | 595.9 | 0.2 | +0.3% | 0.22 px |
-| 891 | 40 | 895.8 | 0.9 | +0.5% | 0.22 px |
-| 1188 | 40 | 1200.0 | 0.0 | +1.0% | 0.12 px |
+| 297 | 40 | 309.6 | 0.4 | +12.6 mm | 0.26 px |
+| 594 | 40 | 595.2 | 0.2 | +1.2 mm | 0.22 px |
+| 891 | 40 | 894.7 | 0.9 | +3.7 mm | 0.22 px |
+| 1188 | 40 | 1198.5 | 0.0 | +10.5 mm | 0.12 px |
 
 ```
-solved = 1.0000 x position + 7.9 mm        largest residual 6.0 mm
+solved = 0.9987 x position + 7.9 mm        largest residual 6.0 mm
 ```
 
-**This last table is conditional and says so.** 163.6 mm is inferred from the
-fit, not measured. If the printed marker turns out to be 170 mm after all, the
-3.9% is in the focal length instead and this section is wrong. The raw data is
-in `measurements_raw.csv`; `measurements.csv` holds the four runs used above.
+**Scale is right to 0.13%**, and what is left is a 7.9 mm offset — the distance
+from the ruler's zero to the optical centre inside the lens, which no ruler can
+reach — plus 6 mm of residual across 1.2 m. The raw data is in
+`measurements_raw.csv`; `measurements.csv` holds the four runs used above.
+
+### The square size could not have caused this, and that is not obvious
+
+The checkerboard was printed by the same printer, so its squares are not 25.0 mm
+either, and the 24.5 mm handed to `calibrate.py` may itself be wrong. It does not
+matter. Scaling every object point by k is absorbed entirely by scaling every
+estimated board distance by k, leaving the projection unchanged — so the focal
+length comes out the same. Running the calibration at 23.55, 24.5 and 25.0 mm
+returns bit-identical intrinsics:
+
+```
+fx 339.32   fy 339.27   cx 340.26   cy 192.50   RMS 0.3982      (all three)
+```
+
+A wrong square size ruins the calibration's own extrinsics and nothing else. The
+ArUco marker is the opposite case: its size scales the answer directly and
+linearly, which is why it had to be measured and the checkerboard did not.
 
 ---
 
