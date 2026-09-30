@@ -1,7 +1,8 @@
 # Calibrating a second camera, and checking the metres against a ruler
 
-The 2021 armor-plate work ends by admitting something. `solve_pose.py` recovers a
-plate's position in millimetres, and the README has to say this:
+The armor-plate pipeline in this repository ends by admitting something.
+`solve_pose.py` recovers a plate's position in millimetres, and the README has to
+say this:
 
 > No ground-truth distance exists for this recording: the two checks test whether
 > the solution is self-consistent, not whether the metres are right.
@@ -56,8 +57,8 @@ RMS reprojection 0.398 px        field of view 86.6° x 55.9°
 
 Written to `config/camera_dashcam.json` in the same schema as
 `../config/camera_2021.json`, so `replay/pose.py`'s `load_camera()` and
-`scale_camera()` read it unchanged — the 2021 industrial camera and this one run
-through the same pose code.
+`scale_camera()` read it unchanged — the team's industrial camera and this one
+run through the same pose code.
 
 ### Which lens model
 
@@ -79,8 +80,8 @@ in the image. Measuring each line's largest deviation from its own best fit, ove
 The models differ by 0.01 px, which is nothing, so the choice has to rest on
 something the numbers do not contain. **Pinhole is used**: the field of view is
 87°, comfortably inside its range; `cv2.solvePnP` takes pinhole intrinsics
-directly while a fisheye model needs its points undistorted first; and the 2021
-pose code already assumes pinhole.
+directly while a fisheye model needs its points undistorted first; and the
+existing pose code already assumes pinhole.
 
 The residual 0.33 px is close to what corner localisation can achieve on a
 640 × 360 H.264 stream. Both models have removed the distortion this stream can

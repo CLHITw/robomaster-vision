@@ -1,27 +1,30 @@
-# Finding a robot in video — my first computer-vision task, measured five years later
+# Finding a robot in video: detection, tracking, pose, and how far off each one is
 
-In 2021 I joined the vision team of HITCRT, the RoboMaster robotics team at Harbin Institute of Technology. My
-first task was to find the enemy robot in footage from the team camera. My first attempt did not work, the
-second one did, and at the time I had no way of saying how well. This repository contains both attempts
-unchanged, and a 2026 test harness that runs them on the original footage and measures them.
+This repository finds the opponent robot in footage from a RoboMaster team camera, tracks it between frames,
+and recovers its position in millimetres — and then measures how well each of those steps actually works
+against frames labelled by hand. The detector started as two attempts written in C++ for the vision team of
+HITCRT at Harbin Institute of Technology: the first did not work, the second did, and neither came with any way
+of saying how well. Both are kept unchanged, with a test harness built around them.
 
-![Armor detection and tracking on the 2021 footage](docs/figures/demo.gif)
+![Armor detection and tracking](docs/figures/demo.gif)
 
-*The original 2021 recording (1280×1024, 50 fps). Green: light bars found by the 2021 detector. Red: the
-position estimate of the tracker added in 2026, with its recent path.*
+*The team camera's recording (1280×1024, 50 fps). Green: light bars found by the detector. Red: the tracker's
+position estimate, with its recent path.*
 
 ## In one minute
 
 | | |
 |---|---|
-| **2021, attempt 1** — grayscale threshold | never finds the robot: 52 boxes per frame, one covering the whole image in every frame |
-| **2021, attempt 2** — colour + light-bar geometry | reports a target in 48.3% of frames; **82.5% of those are correct** (median error 3.3 px) |
-| **2026, tracker** — Kalman filter, gating, association | a correct position in **56.4%** of frames with a target, up from 40.3% |
+| **Attempt 1** — grayscale threshold | never finds the robot: 52 boxes per frame, one covering the whole image in every frame |
+| **Attempt 2** — colour + light-bar geometry | reports a target in 48.3% of frames; **82.5% of those are correct** (median error 3.3 px) |
+| **The tracker** — Kalman filter, gating, association | a correct position in **56.4%** of frames with a target, up from 40.3% |
+| **A second camera** — calibrated from scratch, checked against a ruler | distance correct to **0.13%** between 0.3 m and 1.2 m ([`dashcam_metrology/`](dashcam_metrology)) |
 | **The point** | before labelling I thought the tracker covered 96.9% of frames. 218 hand-labelled frames showed half of those positions were wrong, and I re-tuned against the labels instead of the coverage number. |
 
 Read [what 218 labelled frames changed](#what-218-labelled-frames-changed) for that part, or
-[running it](#running-it) to try it on your own video. The 2021 C++ code is in
-[`original_2021/`](original_2021), unchanged.
+[running it](#running-it) to try it on your own video. The original C++ is in
+[`original_2021/`](original_2021), unchanged. A second camera, calibrated from scratch and checked against a
+ruler, is in [`dashcam_metrology/`](dashcam_metrology).
 
 ## Attempt 1: the robot is the bright thing (wrong)
 
@@ -49,10 +52,10 @@ and vertical offset.
 *The same four frames through all three stages. Top: attempt 1. Middle: attempt 2 — green light bars, red box
 when exactly one armor plate is found, orange when several are. Bottom: attempt 2 plus the tracker.*
 
-## What I could not see in 2021
+## What the program could not tell me
 
-The 2021 program prints `no armors!` or `too many armors!` and moves on, and back then I had no idea how often
-that happened. Measured now over all 1086 frames of the original recording:
+The C++ prints `no armors!` or `too many armors!` and moves on, giving no indication of how often that
+happens. Measured over all 1086 frames of the recording:
 
 | Detector output | Share of frames |
 |---|---|
@@ -69,10 +72,10 @@ the signature of a per-frame detector flickering on a target that is still plain
 directly by this signal would stutter constantly, and the fix is not a better threshold but remembering the
 target between frames.
 
-## 2026: turning intermittent detections into a continuous track
+## Turning intermittent detections into a continuous track
 
 Detection per frame is the wrong abstraction — the robot does not disappear when a light bar does. So I added
-what the 2021 code lacked: a constant-velocity Kalman filter on the armor centre
+what the original lacked: a constant-velocity Kalman filter on the armor centre
 ([`replay/tracking.py`](replay/tracking.py)). Each frame it predicts the next position, accepts the candidate
 closest to that prediction if it falls inside a χ² gate, coasts when nothing matches, and drops the track after
 a few coasting frames. This is the predict / gate / associate structure used by the team's later tracking code,
@@ -93,20 +96,20 @@ frame.
 
 | | correct when it reports | of all frames with a target | median error |
 |---|---|---|---|
-| 2021 detector, frames where it reports one plate | **82.5%** (85/103) | 40.3% | **3.3 px** |
+| Detector, frames where it reports one plate | **82.5%** (85/103) | 40.3% | **3.3 px** |
 | tracker, tuned (see below) | 66.9% (119/178) | **56.4%** | 6.8 px |
 | ‣ on frames where it used a measurement | | | 4.8 px |
 | ‣ on frames where it was coasting | | | **67.0 px** |
 
 ![Distance to the clicked armor centre, per labelled frame](docs/figures/error_vs_ground_truth.png)
 
-*Each orange dot is a frame where the 2021 detector reported a single plate; the blue line is the tracker.
+*Each orange dot is a frame where the detector reported a single plate; the blue line is the tracker.
 Below the dashed line counts as correct. The detector is either right to within a few pixels or wrong by more
 than 100 — there is very little in between.*
 
 Three things came out of this that no coverage metric could have told me:
 
-**The 2021 detector is accurate when it speaks.** Within 3.3 px of where I clicked, four times out of five. Its
+**The detector is accurate when it speaks.** Within 3.3 px of where I clicked, four times out of five. Its
 problem was never precision, it was that it only speaks in 40% of the frames that have a target.
 
 **The pairing rules, not the threshold, are the bottleneck.** In 59.2% of frames with a target, a correct plate
@@ -150,12 +153,11 @@ is exactly where extra labels can turn a miss into a hit; frames the algorithms 
 re-checked. Adding labels can only raise these numbers, never lower them. The unbiased procedure is to label
 every visible plate in a random subset from the start, which is what I would do with more labelling time.
 
-## Finishing the pose solver, five years late
+## The pose solver
 
-The 2021 C++ had one more stage, `display()`: turn the plate in the image into a position in metres, so the
-turret knows where to aim. It never compiled, and I had forgotten most of the geometry. Since the original
-recording is 1280×1024 and the calibration numbers written down in 2021 are for exactly that camera, the stage
-can be finished now: [`replay/pose.py`](replay/pose.py) takes the four light-bar endpoints as the plate corners,
+The C++ has one more stage, `display()`: turn the plate in the image into a position in metres, so the turret
+knows where to aim. It never compiled. The recording is 1280×1024 and the calibration numbers kept alongside
+the original code are for exactly that camera, so the stage can be completed: [`replay/pose.py`](replay/pose.py) takes the four light-bar endpoints as the plate corners,
 the plate size in millimetres, the intrinsics and distortion, and calls `cv2.solvePnP`.
 
 ```bash
@@ -183,19 +185,41 @@ full-size frame: if frames are downscaled the camera matrix has to be scaled wit
 the same clip reads 2.88 m instead of 3.12 m, the rest of that gap coming from coarser light-bar endpoints
 after the resize. Run at native resolution when the numbers matter.
 
+## Checking the millimetres against a ruler
+
+The pose solver above returns millimetres, and the section it sits in has to admit that nothing in this footage
+can say whether those millimetres are right — the checks are for self-consistency, not accuracy. There is no
+tape measure inside a recording made years ago.
+
+So the same question is asked of a camera a ruler can reach. [`dashcam_metrology/`](dashcam_metrology)
+calibrates a cheap dash camera from scratch, picks its lens model by measuring whether the checkerboard's own
+rows and columns come out straight after undistortion rather than by reprojection error, and compares the
+distances it produces against a marker stepped back one A4 sheet at a time.
+
+| | |
+|---|---|
+| Intrinsics | 36 frames, RMS reprojection **0.398 px**, field of view 86.6° × 55.9° |
+| Undistortion | largest deviation from a straight line drops from 0.689 px to **0.327 px** across 520 lines |
+| Distance | scale correct to **0.13%** between 0.3 m and 1.2 m, 6 mm of residual about a straight line |
+| The marker size it rests on | reached twice, once optically and once with a ruler, agreeing to **0.21 mm** |
+
+Both cameras run through the same pose code: `dashcam_metrology/config/camera_dashcam.json` uses the schema
+`replay/pose.py` already reads. Three mistakes made on the way there, none of them visible in the output, are
+written up in that folder's README along with what the numbers cannot show.
+
 ## Honest boundaries
 
-- The stage-1 and stage-2 algorithms are the 2021 C++ code, kept unchanged under `original_2021/` (tag
-  `original-2021`). `carcarcar.cpp` is a scratch file from that time: besides my own attempt it holds a copy of
+- The stage-1 and stage-2 algorithms are the original C++, kept unchanged under `original_2021/` (tag
+  `original-2021`). `carcarcar.cpp` is a scratch file from the same period: besides my own attempt it holds a copy of
   OpenCV's `groupRectangles` implementation, which I had pasted in while trying the cascade face detector and
   reading how it merges overlapping boxes. That block is OpenCV's code and stays under OpenCV's licence; the
   rest of the file, including the calibration numbers, is mine.
 - The measurements come from a **Python replay** of that C++ code, not from running the C++ binary. The replay
   uses the same OpenCV calls, parameters and branch conditions; each deviation is marked `NOTE` in
-  [`replay/pipelines.py`](replay/pipelines.py). The 2021 machine (Ubuntu, OpenCV built from source) no longer
-  exists.
-- The C++ `display()` function was never finished in 2021 and does not compile. Its pose part is reimplemented
-  in `replay/pose.py` as 2026 work, not replayed; the ballistics part is not implemented at all.
+  [`replay/pipelines.py`](replay/pipelines.py). The machine it ran on (Ubuntu, OpenCV built from source) no
+  longer exists.
+- The C++ `display()` function was never finished and does not compile. Its pose part is reimplemented in
+  `replay/pose.py` rather than replayed; the ballistics part is not implemented at all.
 - **The ground truth is 218 frames of one video, clicked by me**, every 5th frame, 228 plates. The accuracy
   figures inherit that: a single scene, my own idea of where the centre of a plate is, a tolerance I chose, and
   the two biases described above. The frame-level percentages in the earlier sections (how often a stage
@@ -204,14 +228,14 @@ after the resize. Run at native resolution when the numbers matter.
   already applied. Every label was 14% too far from the origin and the first evaluation scored 0/103 correct.
   The clicks were recoverable by scaling them back; the original file is kept as
   `labels/video2.buggy-coordinates.csv.bak`. A test now pins the label round trip.
-- The tracker, the harness, the tests and this README are from 2026 and were written with help from an AI
-  coding assistant. All numbers come from the scripts in this repository.
+- The tracker, the harness, the calibration work, the tests and this README are later additions, written with
+  help from an AI coding assistant. All numbers come from the scripts in this repository.
 
 ## Robustness on other footage
 
 Five phone recordings of robots (1080×1920, not included here) give 12–38% single-armor frames and 57–96%
 tracked frames, with the light-bar colour detected automatically. Two things break on them: the pixel
-thresholds of the 2021 detector assume the original camera, so frames have to be downscaled to roughly 720 px
+thresholds of the detector assume the team camera, so frames have to be downscaled to roughly 720 px
 wide (`--proc-width`), and in a scene with both a blue and a red robot the automatic colour choice is
 meaningless and has to be set by hand.
 
@@ -232,7 +256,7 @@ unlabelled frame.
 
 `evaluate.py` then replays the video and reports, for the labelled frames:
 
-- how often the 2021 detector's single-armor output is within tolerance of the clicked centre — its precision,
+- how often the detector's single-armor output is within tolerance of the clicked centre — its precision,
   and its share of all frames that had a target;
 - the same for the tracker, split into frames where it used a measurement and frames where it was coasting;
 - how often the right pair was among the candidates but the pairing rules dropped it (an upper bound on what
@@ -269,7 +293,7 @@ python solve_pose.py clips/robot_clip.mp4        # plate distance from PnP, with
 
 On the clip the detector is right in 26 of the 29 frames where it reports a plate. The numbers quoted in this
 README come from the full 1086-frame recording, which is 105 MB and not committed; `--proc-width 0` keeps the
-native resolution the 2021 thresholds were written for.
+native resolution the thresholds were written for.
 
 ```bash
 python run_videos.py                               # every video in this folder, played back in a window
@@ -283,7 +307,7 @@ Each video is played back with the detections drawn on it and written to `output
 | Option | Meaning |
 |---|---|
 | `--enemy auto\|blue\|red` | Light-bar colour; `auto` probes both on ~30 frames. |
-| `--proc-width 720` | Downscale before detection (`0` = native). The 2021 thresholds assume light bars of 10–150 px. |
+| `--proc-width 720` | Downscale before detection (`0` = native). The thresholds assume light bars of 10–150 px. |
 | `--meas-std`, `--max-coast`, `--accel-std` | Tracker gate, patience and process noise. |
 | `--no-show`, `--no-video`, `--speed` | Batch mode, skip the mp4, playback speed. |
 
@@ -291,9 +315,9 @@ Each video is played back with the detections drawn on it and written to `output
 
 | Path | What it is |
 |---|---|
-| [`original_2021/`](original_2021) | The 2021 C++ code, unchanged. |
+| [`original_2021/`](original_2021) | The original C++, unchanged. |
 | [`replay/pipelines.py`](replay/pipelines.py) | Python replay of both C++ programs. |
-| [`replay/tracking.py`](replay/tracking.py) | The 2026 Kalman tracker. |
+| [`replay/tracking.py`](replay/tracking.py) | The Kalman tracker. |
 | [`replay/visualize.py`](replay/visualize.py) | Overlays, contact sheets, plots. |
 | [`run_videos.py`](run_videos.py) | Playback and evaluation over one or more videos. |
 | [`make_figures.py`](make_figures.py) | Builds the figures in this README. |
@@ -302,5 +326,6 @@ Each video is played back with the detections drawn on it and written to `output
 | [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
 | [`tests/`](tests) | Unit tests on synthetic frames: detection, colour selection, pairing rules, tracker gating, scoring. |
 | [`clips/`](clips), [`labels/`](labels) | A six-second cut of the original recording and the frames I labelled by hand. |
-| [`solve_pose.py`](solve_pose.py), [`replay/pose.py`](replay/pose.py) | The plate pose: PnP, its self-checks, and the 2026 finish of the 2021 `display()`. |
-| [`config/`](config) | Camera calibration from 2021 and the armor plate dimensions, both as data rather than constants. |
+| [`solve_pose.py`](solve_pose.py), [`replay/pose.py`](replay/pose.py) | The plate pose: PnP and its self-checks, completing the unfinished `display()`. |
+| [`config/`](config) | The team camera's calibration and the armor plate dimensions, both as data rather than constants. |
+| [`dashcam_metrology/`](dashcam_metrology) | A second camera calibrated from scratch, with its distances checked against a ruler. |
