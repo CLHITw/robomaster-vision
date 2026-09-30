@@ -188,8 +188,8 @@ after the resize. Run at native resolution when the numbers matter.
 ## Checking the millimetres against a ruler
 
 The pose solver above returns millimetres, and the section it sits in has to admit that nothing in this footage
-can say whether those millimetres are right — the checks are for self-consistency, not accuracy. There is no
-tape measure inside a recording made years ago.
+can say whether those millimetres are right — the checks are for self-consistency, not accuracy. Footage cannot
+be re-measured after the fact.
 
 So the same question is asked of a camera a ruler can reach. [`dashcam_metrology/`](dashcam_metrology)
 calibrates a cheap dash camera from scratch, picks its lens model by measuring whether the checkerboard's own
