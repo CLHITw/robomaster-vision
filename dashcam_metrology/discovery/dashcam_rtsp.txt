@@ -1,0 +1,27 @@
+TIESFONG RTSP 探测  2026-09-23 22:46:22
+目标 rtsp://192.168.10.1:8554
+==========================================================
+
+[1] OPTIONS
+   RTSP/1.0 200 OK
+   CSeq: 1
+   Date: Wed, Sep 23 2026 22:33:10 GMT
+   Public: OPTIONS, DESCRIBE, SETUP, TEARDOWN, PLAY, PAUSE, GET_PARAMETER, SET_PARAMETER
+
+[2] DESCRIBE  (只列非 404 的)
+   ✓ rtsp://192.168.10.1:8554/ch01              RTSP/1.0 200 OK
+        s=Session streamed by "testH264VideoStreamer"
+        i=ch01
+        a=control:*
+        m=video 0 RTP/AVP 96
+        a=rtpmap:96 H264/90000
+        a=control:track1
+        m=audio 0 RTP/AVP 97
+        a=rtpmap:97 MPEG4-GENERIC/8000
+        a=fmtp:97 streamtype=5;profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3
+        a=control:track2
+
+[3] OpenCV 取帧
+   ✓ rtsp://192.168.10.1:8554/ch01          640x360  90000.0 fps  -> E:\DESK\dashcam_ch0.jpg
+
+完成。报告 E:\DESK\dashcam_rtsp.txt
