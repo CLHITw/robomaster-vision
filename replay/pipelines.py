@@ -177,8 +177,31 @@ def armor_status(bars, armors):
     return "too_many"
 
 
-def detect_armors(frame, enemy="blue"):
-    binary = armor_preprocess(frame, enemy)
+def armor_preprocess_saturated(frame, enemy="blue", bright=235, halo=60, halo_radius=5):
+    """For footage where the light bars overexpose (not part of the original code).
+
+    A phone at automatic exposure records the bar cores as white, so the colour
+    difference is *low* inside the bar and highest in the coloured glow it casts
+    on the floor; ``armor_preprocess`` then thresholds the glow. Here a bar is a
+    near-white pixel with the team colour around it: brightness >= ``bright``
+    and, within ``halo_radius`` px, a colour difference >= ``halo``.
+    """
+    b, _, r = cv2.split(frame)
+    diff = cv2.subtract(b, r) if enemy == "blue" else cv2.subtract(r, b)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    core = cv2.inRange(gray, bright, 255)
+    glow = cv2.inRange(diff, halo, 255)
+    glow = cv2.dilate(glow, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * halo_radius + 1,) * 2))
+    binary = cv2.bitwise_and(core, glow)
+    return cv2.dilate(binary, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=1)
+
+
+def detect_armors(frame, enemy="blue", preprocess="original"):
+    """``preprocess``: "original" (the C++ colour-difference threshold) or "saturated"."""
+    if preprocess == "saturated":
+        binary = armor_preprocess_saturated(frame, enemy)
+    else:
+        binary = armor_preprocess(frame, enemy)
     bars = find_light_bars(binary)
     armors = match_armors(bars)
     return bars, armors, binary

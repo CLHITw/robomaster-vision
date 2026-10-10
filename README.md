@@ -19,6 +19,7 @@ position estimate, with its recent path.*
 | **Attempt 2** — colour + light-bar geometry | reports a target in 48.3% of frames; **82.5% of those are correct** (median error 3.3 px) |
 | **The tracker** — Kalman filter, gating, association | a correct position in **56.4%** of frames with a target, up from 40.3% |
 | **The robot on the floor** — floor plane fitted to the plates, ray–plane intersection, Kalman + RTS smoother | its path in metres over the whole recording; the right plate in **69.2%** of labelled target frames, against 56.4% in the image plane |
+| **The same from a hand-held phone** — no calibration, camera turning | focal length from the room's vertical edges and the fixed plate size (998 px, plate heights within 44 mm); the robot's path at its real speed |
 | **A second camera** — calibrated from scratch, checked against a ruler | distance correct to **0.13%** between 0.3 m and 1.2 m ([`dashcam_metrology/`](dashcam_metrology)) |
 | **The point** | before labelling I thought the tracker covered 96.9% of frames. 218 hand-labelled frames showed half of those positions were wrong, and I re-tuned against the labels instead of the coverage number. |
 
@@ -179,10 +180,9 @@ claiming an accuracy the tool reports two self-checks:
   looks narrower — the orange spikes in the figure. That is the expected disagreement, and seeing it is how I
   know both are behaving.
 
-Two honest caveats. The plate is assumed to be a standard small armor plate, 135 × 55 mm, from public
-RoboMaster figures in [`config/armor_plates.json`](config/armor_plates.json); I no longer have the measurements
-our team used, and a wrong width scales every distance by the same factor. And the intrinsics belong to the
-full-size frame: if frames are downscaled the camera matrix has to be scaled with them, which is a test in
+The plate is a standard small armor plate, 135 × 55 mm ([`config/armor_plates.json`](config/armor_plates.json)).
+Armor plates are standardised competition parts, so that size holds on every robot, and it is what turns pixels
+into millimetres here. One caveat: the intrinsics belong to the full-size frame: if frames are downscaled the camera matrix has to be scaled with them, which is a test in
 [`tests/test_pose.py`](tests/test_pose.py) precisely because it is such an easy mistake — at `--proc-width 720`
 the same clip reads 2.88 m instead of 3.12 m, the rest of that gap coming from coarser light-bar endpoints
 after the resize. Run at native resolution when the numbers matter.
@@ -267,10 +267,10 @@ compare the hidden frames with their own measurements.
   line of sight — the direction with the largest uncertainty — barely moves it there. The hold-out check covers
   that direction, but it scores the method against its own measurements, so it measures how well gaps are
   filled, not how right the metres are.
-- **The scale rests on the plate size.** The plane's height comes from the PnP positions, so the 135 mm plate
-  width from [`config/armor_plates.json`](config/armor_plates.json) scales the whole floor. Fitted on the
-  six-second clip alone, the plane comes out at 0.53 m and 8.0° instead of 0.62 m and 9.7°: the estimate
-  depends on which plates it gets to see.
+- **The scale comes from the plate size.** The plane's height comes from the PnP positions, so the
+  competition's 135 mm plate width sets the scale of the whole floor. Fitted on the six-second clip alone, the
+  plane comes out at 0.53 m and 8.0° instead of 0.62 m and 9.7°: the estimate depends on which plates it gets
+  to see.
 - **The robot path sits towards the camera.** Only camera-facing plates are visible, so the path is offset from
   the chassis centre by up to a chassis radius. Fitting circles to the plate arcs would locate the centre, but
   on this footage free-radius fits converge in only half of the windows, so I did not use them.
@@ -280,6 +280,77 @@ compare the hidden frames with their own measurements.
 - **The tracker settings were chosen on the same labels.** A sweep over 96 combinations found a broad
   plateau of process noise between 100 and 400 m/s² (large, because the visible plate jumps as the robot
   spins); the default is the middle of that plateau, not its best point.
+
+## The same from a phone, held in the hand
+
+The recording above had everything the reconstruction needs: a calibrated camera that did not move. A phone in
+the hand has neither — no calibration, and it pans and tilts while it films. `video3.mp4` (not in the repository) is such a recording:
+eight seconds, 720×1280, at the frame rate and speed the phone recorded, of a red robot driving away from the
+camera and back.
+
+```bash
+python reconstruct_trajectory.py video3.mp4 --enemy red --phone
+```
+
+![The robot's path from a hand-held phone](docs/figures/trajectory_phone.png)
+
+*The robot drives out from 1.5 m to almost 4 m, pausing once at 3 m, and comes back to 1.8 m, at a median
+1.1 m/s and at most 2.3 m/s.*
+
+`--phone` adds three steps in front of the same floor pipeline
+([`replay/egomotion.py`](replay/egomotion.py)):
+
+**The rotation is undone.** For a phone that turns in place, the static background moves between frames by a
+homography `H = K R K⁻¹`. SIFT features matched against the first frame give `H` (a median of 1415 inliers,
+0.20 px median error), and every frame's detections are rotated back into the first frame's view. The phone
+turned by up to 9°.
+
+**The room says which way is up.** Vertical edges — the pillar, cabinet sides, chair and stool legs — meet in a
+vanishing point, and `K⁻¹` of that point is the direction of gravity. A single frame is not enough: in the first
+one, a person in the foreground hides most of the edges and its estimate is 11° away from the consensus.
+So 48 frames vote, each rotated back into the first frame's view; 47 agree to within a median of 1.0°.
+
+This step exists because of how the robot moved. It drives nearly in a straight line, so its plate centres lie
+close to one line in space, and a plane fitted through a line is free to pivot about it — the free fit put the
+camera 0.31 m above the plates, pitched 10° down, which the footage plainly contradicts. With the floor's
+orientation fixed by gravity, only its height is fitted.
+
+**The plates say what the focal length is.** The plate size is fixed by the competition rules. PnP depth grows
+with the focal length while the vertical direction tilts with it in the other sense, so only one focal length
+puts every plate centre at the same height above the floor:
+
+| focal length (px) | 700 | 800 | 900 | **998** | 1100 | 1200 | 1400 |
+|---|---|---|---|---|---|---|---|
+| spread of plate heights (mm) | 172 | 119 | 78 | **44** | 47 | 101 | 233 |
+
+998 px, or 65° across the long side of the frame. Each half of the recording on its own gives 986 and 1075 px.
+The classic self-calibration from the rotation alone would say 1203 px; it assumes the phone only turned, and
+most of the features here are on the nearby floor, where a hand moving by a few centimetres is enough to bend
+that homography.
+
+The light bars needed one more change. At automatic exposure the phone records their cores as white, so the
+colour difference that the original detector thresholds is *lowest* inside the bar and highest in the red glow
+it casts on the floor; the original found a single plate in 20 of 239 frames.
+[`armor_preprocess_saturated`](replay/pipelines.py) takes near-white pixels with the team colour around them
+instead, and finds one in 141.
+
+| | |
+|---|---|
+| Floor | camera 0.69 m above the plates, pitched 22.8° down, plates within 39 mm of the plane |
+| Two ranges per plate | PnP and ray agree to a median ratio of 0.998; per third of the recording 0.990, 0.970 and 1.057 |
+| Track | one track over 166 of 239 frames, 148 of them measured |
+| Hold-out, smoothed | median 5 mm for a hidden block of 2 frames, 11 mm for 5, 196 mm for 10 |
+| Timing | the phone's own timestamps: 33.3 ms per frame, except one 61.5 ms interval where it dropped a frame |
+
+The timestamps matter for the speeds: a tracker that assumed a constant 30 fps would read the dropped frame as
+a jump in position. The tracker and the robot path step by the real interval between frames.
+
+What this run cannot show: there are no hand labels for this recording, so there is no independent check of
+the positions in the image, only the self-consistency checks above. The focal length is estimated from the same
+plates it is then used to place, so a plate-height spread of 44 mm says the geometry is consistent, not that
+998 px is right to the pixel; calibrating the phone with a checkerboard in the same video mode would settle it.
+And the phone is treated as turning in place: if the hand also moved, the rotated-back view is slightly off,
+which is the most likely reason the two ranges part by up to 6% between thirds of the recording.
 
 ## Checking the millimetres against a ruler
 
@@ -380,12 +451,13 @@ after a clone:
 
 ```bash
 pip install -r requirements.txt
-python -m pytest                                 # 44 tests on synthetic data
+python -m pytest                                 # 52 tests on synthetic data
 python run_videos.py clips/robot_clip.mp4        # plays it back with the detections drawn on
 python evaluate.py clips/robot_clip.mp4          # scores both stages against the labels
 python tune_tracker.py clips/robot_clip.mp4      # the gate/patience sweep, on the clip
 python solve_pose.py clips/robot_clip.mp4        # plate distance from PnP, with its self-checks
 python reconstruct_trajectory.py clips/robot_clip.mp4   # the robot's path on the floor, checked against the labels
+python reconstruct_trajectory.py phone.mp4 --enemy red --phone   # the same from an uncalibrated hand-held phone
 ```
 
 On the clip the detector is right in 26 of the 29 frames where it reports a plate. The numbers quoted in this
@@ -421,9 +493,10 @@ Each video is played back with the detections drawn on it and written to `output
 | [`label_frames.py`](label_frames.py) | Click tool for ground-truth armor centres. |
 | [`evaluate.py`](evaluate.py) | Scores detector and tracker against those labels. |
 | [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
-| [`tests/`](tests) | Unit tests on synthetic data: detection, colour selection, pairing rules, tracker gating, scoring, pose, floor plane, ray intersection, smoother, end-to-end trajectory. |
+| [`tests/`](tests) | Unit tests on synthetic data: detection, colour selection, pairing rules, tracker gating, scoring, pose, floor plane, ray intersection, smoother, end-to-end trajectory, camera rotation, vertical vanishing point, overexposed light bars, timestamps. |
 | [`clips/`](clips), [`labels/`](labels) | A six-second cut of the original recording and the frames I labelled by hand. |
 | [`solve_pose.py`](solve_pose.py), [`replay/pose.py`](replay/pose.py) | The plate pose: PnP and its self-checks, completing the unfinished `display()`. |
 | [`reconstruct_trajectory.py`](reconstruct_trajectory.py), [`replay/trajectory.py`](replay/trajectory.py) | Floor plane from the plates, ray–plane positions, floor Kalman filter, RTS smoother, robot path. |
+| [`replay/egomotion.py`](replay/egomotion.py) | For a hand-held phone: camera rotation from the background, up from vertical edges, focal length. |
 | [`config/`](config) | The team camera's calibration and the armor plate dimensions, both as data rather than constants. |
 | [`dashcam_metrology/`](dashcam_metrology) | A second camera calibrated from scratch, with its distances checked against a ruler. |

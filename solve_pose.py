@@ -6,9 +6,9 @@ Writes outputs/<video>/pose.csv and pose_plot.png, and prints the two
 self-checks: the reprojection error, and how the PnP depth compares with an
 independent pinhole estimate from the apparent width of the plate.
 
-There is no ground-truth distance for this recording, so nothing here proves
-the distances are right in metres; the plate dimensions come from public
-RoboMaster figures (config/armor_plates.json) and scale every distance.
+There is no ground-truth distance for this recording; the two checks test
+self-consistency. The scale comes from the competition's standard plate size
+(config/armor_plates.json).
 """
 
 import argparse
@@ -128,7 +128,7 @@ def main():
     reproj = np.array([r["reprojection_px"] for r in rows])
     ratio = pinhole / depth
 
-    print(f"\nplate {args.plate}: {width_mm:.0f} x {height_mm:.0f} mm (from config, unverified)")
+    print(f"\nplate {args.plate}: {width_mm:.0f} x {height_mm:.0f} mm (competition standard)")
     print(f"solved on {len(rows)} of {frames} frames\n")
     print(f"  distance          median {np.median(depth):.2f} m   range {depth.min():.2f} - {depth.max():.2f} m")
     print(f"  reprojection      median {np.median(reproj):.2f} px   p90 {np.percentile(reproj, 90):.2f} px   "

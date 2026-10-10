@@ -196,7 +196,7 @@ def test_end_to_end_recovers_a_path_from_noisy_plate_corners():
                      "reprojection_px": r["reprojection_px"], "width_px": r["width_px"]})
 
     floor, fl, consistent, tracks, check = rt.reconstruct(
-        rows, n, FPS, K, DIST, pixel_std=1.0, height_std=10.0, accel=5000.0, max_gap=12, consistency_k=3.0)
+        rows, np.arange(n) / FPS, K, DIST, pixel_std=1.0, height_std=10.0, accel=5000.0, max_gap=12, consistency_k=3.0)
 
     assert floor.pitch_deg == pytest.approx(10.0, abs=1.0)
     assert floor.camera_height_mm == pytest.approx(CAM_HEIGHT, rel=0.1)

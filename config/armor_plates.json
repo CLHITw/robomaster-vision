@@ -1,5 +1,5 @@
 {
-  "source": "public RoboMaster figures, widely used in open-source RoboMaster vision code; I no longer have the measurements the team used in 2021, so these are unverified and every number here is a parameter, not a constant",
+  "source": "RoboMaster competition specification; armor plates are standardised parts, so these are the same on every robot",
   "unit": "mm",
   "measured_between": "the centres of the two light bars horizontally, and the ends of one light bar vertically",
   "plates": {

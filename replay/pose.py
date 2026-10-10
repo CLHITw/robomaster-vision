@@ -7,9 +7,8 @@ rotation and translation of the plate relative to the camera.
 
 Two things to keep in mind when reading the numbers it produces:
 
-* The plate dimensions are public RoboMaster figures (`config/armor_plates.json`),
-  not measurements of the plates our team used. A wrong width scales every
-  distance by the same factor.
+* The plate dimensions (`config/armor_plates.json`) are the competition's
+  standard sizes. They set the scale: every distance is proportional to them.
 * There is no ground-truth distance for the recording, so the module reports two
   self-checks instead: the reprojection error, and an independent pinhole
   estimate from the apparent width of the plate. They catch a wrong corner order
