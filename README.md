@@ -18,10 +18,12 @@ position estimate, with its recent path.*
 | **Attempt 1** — grayscale threshold | never finds the robot: 52 boxes per frame, one covering the whole image in every frame |
 | **Attempt 2** — colour + light-bar geometry | reports a target in 48.3% of frames; **82.5% of those are correct** (median error 3.3 px) |
 | **The tracker** — Kalman filter, gating, association | a correct position in **56.4%** of frames with a target, up from 40.3% |
+| **The robot on the floor** — floor plane fitted to the plates, ray–plane intersection, Kalman + RTS smoother | its path in metres over the whole recording; the right plate in **69.2%** of labelled target frames, against 56.4% in the image plane |
 | **A second camera** — calibrated from scratch, checked against a ruler | distance correct to **0.13%** between 0.3 m and 1.2 m ([`dashcam_metrology/`](dashcam_metrology)) |
 | **The point** | before labelling I thought the tracker covered 96.9% of frames. 218 hand-labelled frames showed half of those positions were wrong, and I re-tuned against the labels instead of the coverage number. |
 
-Read [what 218 labelled frames changed](#what-218-labelled-frames-changed) for that part, or
+Read [what 218 labelled frames changed](#what-218-labelled-frames-changed) for that part,
+[the robot's path on the floor](#from-one-plate-per-frame-to-the-robots-path-on-the-floor) for the top view, or
 [running it](#running-it) to try it on your own video. The original C++ is in
 [`original_2021/`](original_2021), unchanged. A second camera, calibrated from scratch and checked against a
 ruler, is in [`dashcam_metrology/`](dashcam_metrology).
@@ -185,6 +187,100 @@ full-size frame: if frames are downscaled the camera matrix has to be scaled wit
 the same clip reads 2.88 m instead of 3.12 m, the rest of that gap coming from coarser light-bar endpoints
 after the resize. Run at native resolution when the numbers matter.
 
+## From one plate per frame to the robot's path on the floor
+
+The pose solver answers "where is this plate, relative to the camera, in this frame". What a turret, a referee
+system or a planner wants is the next question: where is the robot on the floor, and how is it moving.
+[`reconstruct_trajectory.py`](reconstruct_trajectory.py) answers it for the full recording, with no marker,
+survey or second camera — only the calibration and the footage.
+
+```bash
+python reconstruct_trajectory.py video2.avi
+```
+
+![The robot's path on the floor](docs/figures/trajectory.png)
+
+*Left: top view in metres. Blue dots are plate centres placed on the floor, the coloured line is the robot's
+path. Right: the same over time — the thin lines oscillate as the robot spins, the thick ones are its
+translation. The robot waits at 3.2 m for three seconds, then charges out to 5 m and back several times.*
+
+It takes four steps ([`replay/trajectory.py`](replay/trajectory.py)):
+
+**1. The floor, from the robot itself.** The camera did not move during the recording (the image shifts by a
+median of 0.2 px per ten frames), and the robot drives on a flat floor, so every plate centre sits at the same
+height. A robust plane fit through the PnP positions gives that plane: the camera is **0.62 m above the plates,
+pitched 9.7° down**, with the plates within 32 mm of the plane. DeepScenario's GroundMix fits its ground plane
+from object ground centres in the same spirit.
+
+**2. Position from the ray, not from PnP depth.** PnP depth comes from how large the plate looks, and here the
+plate is 50–100 px wide. When it turns, its width foreshortens, and planar PnP returns two mirror solutions
+whose reprojection errors differ by a median factor of only 1.17, so it cannot tell which way it turned. Once
+the floor is known, the pixel alone fixes the position: the ray through the plate centre meets the plane once.
+With the camera 0.62 m above the plates, a pixel of vertical error moves that point by about a centimetre at
+4 m. This is the step the DSC3D pipeline takes when it replaces the detector's depth with the intersection of a
+ray and the reconstructed ground.
+
+That leaves two independent ranges for every candidate, one from the plate's size and one from the plane, and
+they make a filter: PnP scatters about the ray by a robust 0.3 m at 3 m and 0.6 m at 4.5 m, and the 146 of 1001
+candidates that disagree by more than three times that are dropped. Their average agreement (a ratio of
+1.003) is built in, because the plane was fitted to the PnP positions; what the comparison catches is the
+individual candidate that does not fit.
+
+**3. Filter forward, smooth backward.** A constant-velocity Kalman filter on the floor associates the
+candidates of each frame, with a measurement covariance that is long along the line of sight and narrow across
+it, as the geometry dictates. A Rauch–Tung–Striebel pass then smooths each track with the frames after as well
+as before, which fills detection gaps from both sides. The mean normalised innovation is 1.42 against 2.0 for a
+perfectly calibrated noise model, so the model is, if anything, slightly pessimistic.
+
+**4. The robot, not the plate.** The robot in this recording is spinning: a different numbered plate faces the
+camera every few frames, so the measured plate circles the chassis. A second, physically slow filter over the
+plate track treats that circling as noise and keeps the translation — the thick lines in the figure. It covers
+1022 of 1086 frames.
+
+### How well it works
+
+Against the same 211 hand-labelled frames and the same tolerance as the image-plane tracker above — the 3-D
+track is projected back into the image and compared with the clicked plate:
+
+| | correct, of frames with a target | error on frames without a measurement |
+|---|---|---|
+| Image-plane tracker (tuned, above) | 56.4% | 67.0 px median, coasting |
+| Floor tracker, forward filter only | 68.2% | 60.6 px median |
+| **Floor tracker, smoothed** | **69.2%** | **33.5 px** median |
+
+The forward filter is causal, like the image-plane tracker, and it already does better; a likely reason is that
+on the floor, a candidate a few pixels away in the image but a metre away in depth is no longer a plausible
+match. The smoother halves the error in the gaps.
+
+A second check needs no labels: hide one block of frames in every three, rebuild the track from the rest, and
+compare the hidden frames with their own measurements.
+
+| hidden block | smoothed, median (p90) | forward filter, median (p90) |
+|---|---|---|
+| 2 frames | 91 mm (382 mm) | 176 mm (814 mm) |
+| 5 frames | 111 mm (396 mm) | 187 mm (760 mm) |
+| 10 frames | 180 mm (391 mm) | 414 mm (1490 mm) |
+
+### What these numbers cannot show
+
+- **The label check is blind to depth.** It tests where the plate lands in the image, and an error along the
+  line of sight — the direction with the largest uncertainty — barely moves it there. The hold-out check covers
+  that direction, but it scores the method against its own measurements, so it measures how well gaps are
+  filled, not how right the metres are.
+- **The scale rests on the plate size.** The plane's height comes from the PnP positions, so the 135 mm plate
+  width from [`config/armor_plates.json`](config/armor_plates.json) scales the whole floor. Fitted on the
+  six-second clip alone, the plane comes out at 0.53 m and 8.0° instead of 0.62 m and 9.7°: the estimate
+  depends on which plates it gets to see.
+- **The robot path sits towards the camera.** Only camera-facing plates are visible, so the path is offset from
+  the chassis centre by up to a chassis radius. Fitting circles to the plate arcs would locate the centre, but
+  on this footage free-radius fits converge in only half of the windows, so I did not use them.
+- **Speeds use the frame rate written in the file.** At the declared 50 fps the robot path has a median speed
+  of 0.38 m/s and a 95th percentile of 3.9 m/s. The recorder's real frame timing was not kept, and the
+  dash-camera work below is a reminder of why a declared rate is not a measured one.
+- **The tracker settings were chosen on the same labels.** A sweep over 96 combinations found a broad
+  plateau of process noise between 100 and 400 m/s² (large, because the visible plate jumps as the robot
+  spins); the default is the middle of that plateau, not its best point.
+
 ## Checking the millimetres against a ruler
 
 The pose solver above returns millimetres, and the section it sits in has to admit that nothing in this footage
@@ -284,11 +380,12 @@ after a clone:
 
 ```bash
 pip install -r requirements.txt
-python -m pytest                                 # 14 tests on synthetic frames
+python -m pytest                                 # 44 tests on synthetic data
 python run_videos.py clips/robot_clip.mp4        # plays it back with the detections drawn on
 python evaluate.py clips/robot_clip.mp4          # scores both stages against the labels
 python tune_tracker.py clips/robot_clip.mp4      # the gate/patience sweep, on the clip
 python solve_pose.py clips/robot_clip.mp4        # plate distance from PnP, with its self-checks
+python reconstruct_trajectory.py clips/robot_clip.mp4   # the robot's path on the floor, checked against the labels
 ```
 
 On the clip the detector is right in 26 of the 29 frames where it reports a plate. The numbers quoted in this
@@ -324,8 +421,9 @@ Each video is played back with the detections drawn on it and written to `output
 | [`label_frames.py`](label_frames.py) | Click tool for ground-truth armor centres. |
 | [`evaluate.py`](evaluate.py) | Scores detector and tracker against those labels. |
 | [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
-| [`tests/`](tests) | Unit tests on synthetic frames: detection, colour selection, pairing rules, tracker gating, scoring. |
+| [`tests/`](tests) | Unit tests on synthetic data: detection, colour selection, pairing rules, tracker gating, scoring, pose, floor plane, ray intersection, smoother, end-to-end trajectory. |
 | [`clips/`](clips), [`labels/`](labels) | A six-second cut of the original recording and the frames I labelled by hand. |
 | [`solve_pose.py`](solve_pose.py), [`replay/pose.py`](replay/pose.py) | The plate pose: PnP and its self-checks, completing the unfinished `display()`. |
+| [`reconstruct_trajectory.py`](reconstruct_trajectory.py), [`replay/trajectory.py`](replay/trajectory.py) | Floor plane from the plates, ray–plane positions, floor Kalman filter, RTS smoother, robot path. |
 | [`config/`](config) | The team camera's calibration and the armor plate dimensions, both as data rather than constants. |
 | [`dashcam_metrology/`](dashcam_metrology) | A second camera calibrated from scratch, with its distances checked against a ruler. |
