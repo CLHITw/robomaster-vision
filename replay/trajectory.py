@@ -91,36 +91,25 @@ def _plane(points):
     return normal, centre
 
 
-def fit_floor(points_cam, rounds=4, k=3.0, up=None):
+def fit_floor(points_cam, rounds=4, k=3.0):
     """Robust plane through camera-frame points: least squares, then refit on inliers.
 
     Each round keeps the points within ``k`` robust standard deviations of the
-    current plane. With ``up`` (a unit vector in camera coordinates, e.g. from
-    the room's vertical edges) the orientation is fixed and only the plane's
-    offset is fitted, which is what a robot driving in a nearly straight line
-    needs: plate centres along one line leave a free plane free to pivot about
-    it. Raises ValueError with fewer than three usable points.
+    current plane. Raises ValueError with fewer than three usable points.
     """
     p = np.asarray(points_cam, dtype=float)
     if len(p) < 3:
         raise ValueError("a plane needs at least three points")
-
-    def plane(sel):
-        if up is None:
-            return _plane(p[sel])
-        n = np.asarray(up, dtype=float) / np.linalg.norm(up)
-        return n, n * float(np.median(p[sel] @ n))
-
     mask = np.ones(len(p), dtype=bool)
     for _ in range(rounds):
-        normal, centre = plane(mask)
+        normal, centre = _plane(p[mask])
         dist = (p - centre) @ normal
         spread = 1.4826 * np.median(np.abs(dist[mask] - np.median(dist[mask])))
         new = np.abs(dist) <= k * max(spread, 1e-9)
         if new.sum() < 3 or np.array_equal(new, mask):
             break
         mask = new
-    normal, centre = plane(mask)
+    normal, centre = _plane(p[mask])
     if normal[1] > 0:                  # camera y points down; the plane normal should point up
         normal = -normal
     offset = float(centre @ normal)
@@ -251,7 +240,6 @@ def rts_smooth(xs_filt, Ps_filt, xs_pred, Ps_pred, Fs):
 class Track:
     """One continuous track: per frame, the filtered and smoothed floor state."""
     frames: list = field(default_factory=list)
-    times: list = field(default_factory=list)          # seconds; frame / fps unless timestamps were given
     measured: list = field(default_factory=list)      # True where a measurement was used
     z: list = field(default_factory=list)              # the measurement used, or None
     x_filt: list = field(default_factory=list)
@@ -266,7 +254,7 @@ class Track:
     def trim_and_smooth(self):
         """Drop the coasting tail after the last measurement, then run the smoother."""
         last = max(i for i, m in enumerate(self.measured) if m)
-        for name in ("frames", "times", "measured", "z", "x_filt", "P_filt", "x_pred", "P_pred", "F"):
+        for name in ("frames", "measured", "z", "x_filt", "P_filt", "x_pred", "P_pred", "F"):
             setattr(self, name, getattr(self, name)[:last + 1])
         self.x_smooth, self.P_smooth = rts_smooth(self.x_filt, self.P_filt,
                                                   self.x_pred, self.P_pred, self.F)
@@ -286,22 +274,21 @@ def robot_path(track, fps, accel_std_mm_s2=5000.0, spin_std_mm=150.0):
     Returns (frames, smoothed states N x 4).
     """
     R = np.eye(2) * spin_std_mm ** 2
-    times = track.times or [f / float(fps) for f in track.frames]
-    kf, frames, t_prev = None, [], None
+    dt = 1.0 / float(fps)
+    kf, frames = None, []
     xs_f, Ps_f, xs_p, Ps_p, Fs = [], [], [None], [None], [None]
-    for f, t, z in zip(track.frames, times, track.z):
+    for f, z in zip(track.frames, track.z):
         if kf is None:
             if z is None:
                 continue
             kf = CVKalmanFloor(z, R, accel_std_mm_s2)
         else:
-            Fs.append(kf.predict(t - t_prev))
+            Fs.append(kf.predict(dt))
             xs_p.append(kf.x.copy())
             Ps_p.append(kf.P.copy())
             if z is not None:
                 kf.update(z, R)
         frames.append(f)
-        t_prev = t
         xs_f.append(kf.x.copy())
         Ps_f.append(kf.P.copy())
     xs, _ = rts_smooth(xs_f, Ps_f, xs_p, Ps_p, Fs)
@@ -327,7 +314,6 @@ class FloorTracker:
         self.kf = None
         self.track = None
         self.gap = 0
-        self.t_prev = None
         self.done = []
 
     def _close(self):
@@ -335,15 +321,10 @@ class FloorTracker:
             self.done.append(self.track.trim_and_smooth())
         self.kf, self.track, self.gap = None, None, 0
 
-    def step(self, frame, candidates, t=None):
-        """``candidates``: list of (z_xy, R) pairs in floor millimetres.
-
-        ``t``: the frame's timestamp in seconds. Without it frames are taken to
-        be ``1 / fps`` apart, which a recorder that drops frames does not honour.
-        """
-        now = frame * self.dt if t is None else float(t)
+    def step(self, frame, candidates):
+        """``candidates``: list of (z_xy, R) pairs in floor millimetres."""
         if self.kf is not None:
-            F = self.kf.predict(now - self.t_prev)
+            F = self.kf.predict(self.dt)
             x_pred, P_pred = self.kf.x.copy(), self.kf.P.copy()
             scored = sorted((self.kf.mahalanobis2(z, R), k) for k, (z, R) in enumerate(candidates))
             used = None
@@ -356,7 +337,6 @@ class FloorTracker:
                 self.gap += 1
             t = self.track
             t.frames.append(frame)
-            t.times.append(now)
             t.measured.append(used is not None)
             t.z.append(None if used is None else np.asarray(used[0], dtype=float))
             t.x_pred.append(x_pred)
@@ -364,7 +344,6 @@ class FloorTracker:
             t.F.append(F)
             t.x_filt.append(self.kf.x.copy())
             t.P_filt.append(self.kf.P.copy())
-            self.t_prev = now
             if self.gap > self.max_gap:
                 self._close()
             return
@@ -372,11 +351,10 @@ class FloorTracker:
         if len(candidates) == 1:
             z, R = candidates[0]
             self.kf = CVKalmanFloor(z, R, self.accel, self.speed)
-            self.track = Track(frames=[frame], times=[now], measured=[True], z=[np.asarray(z, dtype=float)],
+            self.track = Track(frames=[frame], measured=[True], z=[np.asarray(z, dtype=float)],
                                x_filt=[self.kf.x.copy()], P_filt=[self.kf.P.copy()],
                                x_pred=[None], P_pred=[None], F=[None])
             self.gap = 0
-            self.t_prev = now
 
     def finish(self):
         self._close()
