@@ -155,6 +155,61 @@ is exactly where extra labels can turn a miss into a hit; frames the algorithms 
 re-checked. Adding labels can only raise these numbers, never lower them. The unbiased procedure is to label
 every visible plate in a random subset from the start, which is what I would do with more labelling time.
 
+## Replacing the pairing rules with two small models
+
+The labels pointed at the pairing rules, so that is where the first learned component goes
+([`replay/learned.py`](replay/learned.py)). Every pair of light bars in a frame is scored by two models instead
+of the four cascaded rules:
+
+- a **pair classifier**, an MLP with two hidden layers on ten scale-free measurements of the two bars (spacing,
+  offsets, length and width ratios, tilts, all divided by the bar length), which says whether the two bars could
+  belong to one plate;
+- a **number classifier**, a three-layer CNN on the 32×32 patch between the bars, straightened by a perspective
+  warp ([`replay/armor_patch.py`](replay/armor_patch.py)), which reads the number printed on the plate or says
+  there is no plate.
+
+A pair is kept when both agree, plates claim their bars best first so no bar is used twice, and the detector
+reports the best plate instead of giving up when it sees several. Both models are exported to ONNX and run
+through `cv2.dnn`, so using them needs nothing beyond OpenCV (under 1 ms per frame on the clip, on a CPU), and
+the same files load in OpenCV's C++ API, OpenVINO or TensorRT. PyTorch is only needed to train them.
+
+The training data comes from the labels that already exist. A pair whose centre is far from every clicked plate
+is a negative; a pair near a click is a plate, and [`label_patches.py`](label_patches.py) asks for the number on
+it. On the committed clip that is 465 pairs: 406 negatives, and 73 pairs near a click, of which 14 turned out
+not to be one plate (bars of two different plates, a plate seen edge-on) and 59 show a 2, 3 or 4. I labelled
+those 73 patches by eye ([`labels/robot_clip.patches.csv`](labels/robot_clip.patches.csv)).
+
+Scored with cross-validation in time, five contiguous blocks of the clip, each scored by models trained on the
+other four (`python train_armor_models.py clips/robot_clip.mp4`):
+
+| on the clip, 56 labelled frames with a target | 2021 rules | learned, held out |
+|---|---|---|
+| detector reports a plate, correct | 89.7% (26/29) | **93.9%** (46/49) |
+| ‣ of all frames with a target | 46.4% | **82.1%** |
+| tracker, correct, of all frames with a target | 58.9% | 73.2% |
+| detector median error (p90) | 3.8 px (24.8 px) | 3.5 px (**6.8 px**) |
+| number on the plate, hand-labelled plates | — | 58/59 |
+| false target on the 4 empty frames | 0% | 0% |
+
+The detector now reports a correct plate in most frames instead of fewer than half, without losing precision.
+The tracker gains less, and is now the weaker stage: it still starts a track only from a frame with exactly one
+candidate and was tuned for the old detector, so re-running `tune_tracker.py` with the new candidates is the
+obvious next step. With another seed the held-out numbers are 82.1% and 78.6%; the detector figure is stable,
+the tracker figure moves by a few frames.
+
+What this does not show: it is one six-second clip of one robot, the folds are neighbouring stretches of that
+same clip, and the number classifier has only seen 2, 3 and 4. The committed models in `models/` are trained on
+all of it, so `python evaluate.py clips/robot_clip.mp4 --matcher learned` scores what they memorised and says
+so; the held-out numbers come only from `train_armor_models.py`. The full 1086-frame recording and other footage
+are what should train and test the next version:
+
+```bash
+pip install -r requirements-ml.txt                       # PyTorch and ONNX, for training only
+python label_patches.py video2.avi                       # the number on each pair near a click
+python train_armor_models.py video2.avi clips/robot_clip.mp4 --cv 5   # compare, then write models/
+python evaluate.py video2.avi --matcher learned          # or run_videos.py ... --matcher learned
+```
+
 ## The pose solver
 
 The C++ has one more stage, `display()`: turn the plate in the image into a position in metres, so the turret
@@ -379,7 +434,7 @@ after a clone:
 
 ```bash
 pip install -r requirements.txt
-python -m pytest                                 # 44 tests on synthetic data
+python -m pytest                                 # 50 tests on synthetic data
 python run_videos.py clips/robot_clip.mp4        # plays it back with the detections drawn on
 python evaluate.py clips/robot_clip.mp4          # scores both stages against the labels
 python tune_tracker.py clips/robot_clip.mp4      # the gate/patience sweep, on the clip

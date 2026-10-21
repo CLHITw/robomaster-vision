@@ -133,6 +133,11 @@ def process(path, out_root, args):
         # the calibration belongs to the full-size frame; rescale it with the frame
         pose_config = (scale_camera(camera_matrix, scale), distortion, load_plate(args.plate, args.plates))
 
+    matcher = None
+    if args.matcher == "learned":
+        from replay.learned import LearnedMatcher
+        matcher = LearnedMatcher.load(args.models)
+
     meas_std = args.meas_std if args.meas_std else round(0.008 * width, 1)
     tracker = ArmorTracker(max_coast=args.max_coast, accel_std=args.accel_std, meas_std=meas_std)
     records, samples = [], {"v1": [], "v1_bin": [], "v2": [], "v2_bin": [], "track": []}
@@ -150,6 +155,8 @@ def process(path, out_root, args):
 
         boxes, v1_bin = threshold_boxes(frame)
         bars, armors, v2_bin = detect_armors(frame, enemy)
+        if matcher is not None:
+            armors = matcher.match(frame, bars)
         status = armor_status(bars, armors)
         candidates = [(a.cx, a.cy) for a in armors]
         step = tracker.step(candidates)
@@ -303,6 +310,9 @@ def main():
                         help="measurement noise of the armor centre in px; 0 (default) uses 0.8%% of the "
                              "frame width, the value tune_tracker.py found on the labelled frames")
     parser.add_argument("--accel-std", type=float, default=4.0, help="process noise (px / frame^2)")
+    parser.add_argument("--matcher", choices=("rules", "learned"), default="rules",
+                        help="pair light bars with the 2021 rules or the models from train_armor_models.py")
+    parser.add_argument("--models", type=Path, default=Path("models"), help="directory of the learned models")
     args = parser.parse_args()
 
     videos = collect_videos(args.inputs or ["."])

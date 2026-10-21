@@ -23,6 +23,18 @@ def closest_pair(points, candidates):
     return min(nearest(p, candidates) for p in points)
 
 
+def reported_target(record):
+    """The position the detector reports in a frame, or None.
+
+    The 2021 program reports only when it finds exactly one armor. A detector
+    that ranks its candidates (``replay/learned.py``) reports its best one and
+    stores it as ``target``.
+    """
+    if "target" in record:
+        return record["target"]
+    return record["candidates"][0] if record["status"] == "one_armor" else None
+
+
 def _stats(errors):
     errors = np.array([e for e in errors if math.isfinite(e)], dtype=float)
     if errors.size == 0:
@@ -52,9 +64,10 @@ def evaluate(records, labels, tol_px):
         r = records[f]
         points = lab["points"]
         det_best_err.append(closest_pair(points, r["candidates"]))
-        if r["status"] == "one_armor":
+        target = reported_target(r)
+        if target is not None:
             det_single_frames += 1
-            det_single_err.append(closest_pair(points, r["candidates"]))
+            det_single_err.append(closest_pair(points, [target]))
         if r["estimate"] is not None:
             track_frames += 1
             err = closest_pair(points, [r["estimate"]])
@@ -92,7 +105,7 @@ def evaluate(records, labels, tol_px):
     }
 
     if empty:
-        false_detect = sum(1 for f in empty if records[f]["status"] == "one_armor")
+        false_detect = sum(1 for f in empty if reported_target(records[f]) is not None)
         false_track = sum(1 for f in empty if records[f]["estimate"] is not None)
         result["false_target_when_empty_pct"] = round(100 * false_detect / len(empty), 1)
         result["tracker_position_when_empty_pct"] = round(100 * false_track / len(empty), 1)

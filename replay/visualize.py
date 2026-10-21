@@ -36,6 +36,10 @@ def draw_v2(frame, bars, armors):
     for a in armors:
         cv2.rectangle(out, (int(a.cx - a.width / 2), int(a.cy - a.height / 2)),
                       (int(a.cx + a.width / 2), int(a.cy + a.height / 2)), colour, 2 * s)
+        number = getattr(a, "number", None)   # set by the learned matcher
+        if number is not None:
+            cv2.putText(out, f"{number} {a.score:.2f}", (int(a.cx - a.width / 2), int(a.cy - a.height / 2) - 6 * s),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, colour, max(1, s), cv2.LINE_AA)
     return out
 
 
