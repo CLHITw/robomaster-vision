@@ -20,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from replay.metrics import closest_pair, evaluate
+from replay.metrics import closest_pair, evaluate, reported_target
 from replay.pipelines import armor_status, detect_armors
 from replay.tracking import ArmorTracker
 
@@ -36,7 +36,8 @@ def load_labels(path, scale):
     return labels
 
 
-def replay(video, enemy, proc_width, meas_std, max_coast):
+def replay(video, enemy, proc_width, meas_std, max_coast, matcher=None):
+    """Detect and track every frame. ``matcher`` (a ``LearnedMatcher``) replaces the 2021 pairing rules."""
     cap = cv2.VideoCapture(str(video))
     records, tracker, width = [], None, None
     while True:
@@ -50,25 +51,32 @@ def replay(video, enemy, proc_width, meas_std, max_coast):
             width = frame.shape[1]
             tracker = ArmorTracker(max_coast=max_coast, meas_std=meas_std or round(0.008 * width, 1))
         bars, armors, _ = detect_armors(frame, enemy)
+        if matcher is not None:
+            armors = matcher.match(frame, bars)
         candidates = [(a.cx, a.cy) for a in armors]
         step = tracker.step(candidates)
-        records.append({"candidates": candidates, "status": armor_status(bars, armors),
-                        "state": step.state, "estimate": step.estimate})
+        record = {"candidates": candidates, "status": armor_status(bars, armors),
+                  "state": step.state, "estimate": step.estimate}
+        if matcher is not None:
+            # the learned matcher ranks its plates and reports the best one
+            record["target"] = candidates[0] if candidates else None
+        records.append(record)
     cap.release()
     return records, width
 
 
-def error_plot(records, labels, tol_px, path, title):
+def error_plot(records, labels, tol_px, path, title, det_name="2021 detector (single armor frames)"):
     frames = sorted(f for f, lab in labels.items() if lab["points"] and f < len(records))
     det, trk = [], []
     for f in frames:
         points = labels[f]["points"]
         r = records[f]
-        det.append(closest_pair(points, r["candidates"]) if r["status"] == "one_armor" else np.nan)
+        target = reported_target(r)
+        det.append(closest_pair(points, [target]) if target is not None else np.nan)
         trk.append(closest_pair(points, [r["estimate"]]) if r["estimate"] is not None else np.nan)
     fig, ax = plt.subplots(figsize=(11, 3.2))
     ax.axhline(tol_px, color="grey", ls="--", lw=1, label=f"tolerance {tol_px:.0f} px")
-    ax.plot(frames, det, "o", ms=4, color="tab:orange", label="2021 detector (single armor frames)")
+    ax.plot(frames, det, "o", ms=4, color="tab:orange", label=det_name)
     ax.plot(frames, trk, "-", lw=1.2, color="tab:blue", label="tracker estimate")
     ax.set_yscale("symlog", linthresh=50)
     ax.set_xlabel("frame")
@@ -92,13 +100,23 @@ def main():
     p.add_argument("--tol-frac", type=float, default=0.02, help="tolerance as a fraction of frame width")
     p.add_argument("--tol-px", type=float, default=0.0, help="tolerance in px (overrides --tol-frac)")
     p.add_argument("--out", type=Path, default=None, help="default: outputs/<video>/")
+    p.add_argument("--matcher", choices=("rules", "learned"), default="rules",
+                   help="pair light bars with the 2021 rules or the models from train_armor_models.py")
+    p.add_argument("--models", type=Path, default=Path("models"), help="directory of the learned models")
     args = p.parse_args()
 
     labels_path = args.labels or Path("labels") / f"{args.video.stem}.csv"
     if not labels_path.exists():
         raise SystemExit(f"no labels at {labels_path} - run label_frames.py first")
 
-    records, width = replay(args.video, args.enemy, args.proc_width, args.meas_std, args.max_coast)
+    matcher = None
+    if args.matcher == "learned":
+        from replay.learned import LearnedMatcher
+        matcher = LearnedMatcher.load(args.models)
+        if any(Path(v.replace("\\", "/")).name == args.video.name for v in matcher.meta.get("trained_on", [])):
+            print(f"WARNING: the models in {args.models}/ were trained on {args.video.name}; the scores below "
+                  f"measure memory, not accuracy. train_armor_models.py --cv reports held-out scores.")
+    records, width = replay(args.video, args.enemy, args.proc_width, args.meas_std, args.max_coast, matcher)
     src_width = int(cv2.VideoCapture(str(args.video)).get(cv2.CAP_PROP_FRAME_WIDTH))
     scale = width / src_width
     labels = load_labels(labels_path, scale)
@@ -108,13 +126,16 @@ def main():
     result["video"] = args.video.name
     result["processed_width"] = width
     result["labels"] = str(labels_path)
+    result["matcher"] = args.matcher
 
-    out_dir = args.out or Path("outputs") / args.video.stem
+    suffix = "" if args.matcher == "rules" else f"-{args.matcher}"
+    out_dir = args.out or Path("outputs") / f"{args.video.stem}{suffix}"
+    det_name = "2021 detector, single-armor frames" if args.matcher == "rules" else "learned pairing, best plate"
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "evaluation.json", "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2)
     error_plot(records, labels, tol_px, out_dir / "error_plot.png",
-               f"{args.video.name}: distance to the clicked armor centre")
+               f"{args.video.name}: distance to the clicked armor centre", det_name)
 
     # frames where a reported position missed every label: worth a second look,
     # a plate the labeller did not click may have been visible there
@@ -123,7 +144,8 @@ def main():
         if f >= len(records) or not labels[f]["points"]:
             continue
         r_f = records[f]
-        miss_det = r_f["status"] == "one_armor" and closest_pair(labels[f]["points"], r_f["candidates"]) > tol_px
+        target = reported_target(r_f)
+        miss_det = target is not None and closest_pair(labels[f]["points"], [target]) > tol_px
         miss_trk = (r_f["state"] == "update" and r_f["estimate"] is not None
                     and closest_pair(labels[f]["points"], [r_f["estimate"]]) > tol_px)
         if miss_det or miss_trk:
@@ -136,7 +158,7 @@ def main():
           f"({r['armor_plates_labelled']} plates, {r['frames_with_several_plates']} frames with several), "
           f"{r['frames_without_target']} without. Tolerance {r['tolerance_px']} px.\n")
     print(f"{'':34s} {'correct':>10s} {'of frames':>11s} {'median err':>11s}")
-    print(f"{'2021 detector, single-armor frames':34s} "
+    print(f"{det_name:34s} "
           f"{str(r['detector_single_correct']) + '/' + str(r['detector_single_frames']):>10s} "
           f"{str(r['detector_single_precision_pct']) + '%':>11s} "
           f"{str(r['detector_error']['median_px']) + ' px':>11s}")
