@@ -147,7 +147,7 @@ def train_number_net(patches, targets, classes, epochs, seed):
     import torch
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    y = np.array([classes.index(t) for t in targets])
+    y = np.array([classes.index(t) for t in targets], dtype=np.int64)   # int32 on Windows; torch wants int64
     counts = np.bincount(y, minlength=len(classes)).astype(float)
     # every class is drawn about equally often, so the many negatives do not drown the numbers
     weights = 1.0 / counts[y]
