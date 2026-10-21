@@ -18,6 +18,7 @@ position estimate, with its recent path.*
 | **Attempt 1** — grayscale threshold | never finds the robot: 52 boxes per frame, one covering the whole image in every frame |
 | **Attempt 2** — colour + light-bar geometry | reports a target in 48.3% of frames; **82.5% of those are correct** (median error 3.3 px) |
 | **The tracker** — Kalman filter, gating, association | a correct position in **56.4%** of frames with a target, up from 40.3% |
+| **Learned pairing** — an MLP on bar geometry and a CNN reading the plate number, in place of the pairing rules | a correct plate in **82.0%** of frames with a target, up from 40.3%, held out; 95.1% correct when it reports ([below](#replacing-the-pairing-rules-with-two-small-models)) |
 | **The robot on the floor** — floor plane fitted to the plates, ray–plane intersection, Kalman + RTS smoother | its path in metres over the whole recording; the right plate in **69.2%** of labelled target frames, against 56.4% in the image plane |
 | **A second camera** — calibrated from scratch, checked against a ruler | distance correct to **0.13%** between 0.3 m and 1.2 m ([`dashcam_metrology/`](dashcam_metrology)) |
 | **The point** | before labelling I thought the tracker covered 96.9% of frames. 218 hand-labelled frames showed half of those positions were wrong, and I re-tuned against the labels instead of the coverage number. |
@@ -158,8 +159,8 @@ every visible plate in a random subset from the start, which is what I would do 
 ## Replacing the pairing rules with two small models
 
 The labels pointed at the pairing rules, so that is where the first learned component goes
-([`replay/learned.py`](replay/learned.py)). Every pair of light bars in a frame is scored by two models instead
-of the four cascaded rules:
+([`replay/learned.py`](replay/learned.py)). Every pair of light bars the 2021 colour threshold finds is scored by
+two models instead of the four cascaded rules:
 
 - a **pair classifier**, an MLP with two hidden layers on ten scale-free measurements of the two bars (spacing,
   offsets, length and width ratios, tilts, all divided by the bar length), which says whether the two bars could
@@ -169,31 +170,30 @@ of the four cascaded rules:
   there is no plate.
 
 A pair is kept when both agree, plates claim their bars best first so no bar is used twice, and the detector
-reports the best plate instead of giving up when it sees several. Both models are exported to ONNX and run
-through `cv2.dnn`, so using them needs nothing beyond OpenCV (under 1 ms per frame on the clip, on a CPU), and
-the same files load in OpenCV's C++ API, OpenVINO or TensorRT. PyTorch is only needed to train them.
+reports its best plate instead of giving up when it sees several. Both models are exported to ONNX and run
+through `cv2.dnn`, so using them needs nothing beyond OpenCV (under 1 ms per frame on a laptop CPU), and the
+same files load in OpenCV's C++ API, OpenVINO or TensorRT. PyTorch is only needed to train them.
 
-The training data comes from the labels that already exist. A pair whose centre is far from every clicked plate
-is a negative; a pair near a click is a plate, and [`label_patches.py`](label_patches.py) asks for the number on
-it. On the committed clip that is 465 pairs: 406 negatives, and 73 pairs near a click, of which 14 turned out
-not to be one plate (bars of two different plates, a plate seen edge-on) and 59 show a 2, 3 or 4. I labelled
-those 73 patches by eye ([`labels/robot_clip.patches.csv`](labels/robot_clip.patches.csv)).
+![The 2021 rules and the learned pairing on the same frames](docs/figures/learned_vs_rules.jpg)
 
-Scored with cross-validation in time, five contiguous blocks of the clip, each scored by models trained on the
-other four (`python train_armor_models.py clips/robot_clip.mp4`):
+*Labelled frames of video2.avi where only the learned pairing reports the right plate. White circle: the
+tolerance around the clicked plate. Above each learned plate: the number it read and its score.*
 
-| on the clip, 56 labelled frames with a target | 2021 rules | learned, held out |
-|---|---|---|
-| detector reports a plate, correct | 89.7% (26/29) | **93.9%** (46/49) |
-| ‣ of all frames with a target | 46.4% | **82.1%** |
-| tracker, correct, of all frames with a target | 58.9% | 73.2% |
-| detector median error (p90) | 3.8 px (24.8 px) | 3.5 px (**6.8 px**) |
-| number on the plate, hand-labelled plates | — | 58/59 |
-| false target on the 4 empty frames | 0% | 0% |
+### Where the training data comes from
 
-On the full recording, with the 286 pairs near a click labelled by `label_patches.py --auto` and checked
-by eye (7 of the suggestions changed), and the same five-block cross-validation over both videos
-(`python train_armor_models.py video2.avi clips/robot_clip.mp4`):
+No new kind of annotation was needed to start. In a labelled frame, a pair of bars whose centre is far from every
+clicked plate is a negative; a pair near a click is a candidate plate, and [`label_patches.py`](label_patches.py)
+names the number on it. On the clip I labelled its 73 candidates by eye. On video2.avi, `label_patches.py --auto`
+let those first models suggest labels for its 286 candidates, and checking the contact sheet by eye changed 7 of
+them (four plates rejected as "not a plate", three partial patches accepted as a 2). Together that is 2327 pairs:
+2053 negatives and 100, 84 and 90 plates numbered 2, 3 and 4.
+
+### How well it works
+
+Training and scoring on the same frames would only measure memory, so
+[`train_armor_models.py`](train_armor_models.py) cross-validates in time: each video is cut into five contiguous
+blocks, and each block is scored by models trained on everything else. Neighbouring frames look almost the same,
+which is why the folds are blocks and not every fifth frame.
 
 | video2.avi, 211 labelled frames with a target | 2021 rules | learned, held out |
 |---|---|---|
@@ -201,32 +201,44 @@ by eye (7 of the suggestions changed), and the same five-block cross-validation 
 | ‣ of all frames with a target | 40.3% | **82.0%** |
 | tracker, correct, of all frames with a target | 56.4% | 74.4% |
 | detector median error (p90) | 3.3 px (71.0 px) | 3.4 px (**6.6 px**) |
-| number on the plate, both videos | — | 274/274 |
+| number on the plate, hand-checked plates of both videos | — | 274/274 |
 | false target on the 7 empty frames | 0% | 0% |
 
-The detector now reports a correct plate in most frames instead of fewer than half, without losing precision.
-The tracker gains less, and is now the weaker stage: it still starts a track only from a frame with exactly one
-candidate and was tuned for the old detector, so re-running `tune_tracker.py` with the new candidates is the
-obvious next step. With another seed the held-out numbers are 82.1% and 78.6%; the detector figure is stable,
-the tracker figure moves by a few frames.
+The detector now finds the right plate in four frames out of five instead of two, and is more precise when it
+speaks: the p90 error drops from 71 px to 6.6 px because it no longer picks bars of two different plates. On
+the committed clip the same procedure gives 87.5% against 46.4%.
 
-On a phone recording of a different robot (number 5, red bars, 720×1280, not committed) the learned matcher
-reported a plate in 7 of 239 frames against 31 for the rules, all of them on the robot: a 5 is not one of the
-classes it was trained on, so it rejects the plate most of the time. A new robot number needs labelled plates
-before the matcher can be used on it.
+The tracker gains less and is now the weaker stage. It still starts a track only from a frame with exactly one
+candidate, and its gate and patience were tuned for the old detector; re-tuning it on the new candidates is the
+next step.
 
-What this does not show: the clip is six seconds of one robot, the folds are neighbouring stretches of that
-same clip, and the number classifier has only seen 2, 3 and 4. The committed models in `models/` are trained on
-all of it, so `python evaluate.py clips/robot_clip.mp4 --matcher learned` scores what they memorised and says
-so; the held-out numbers come only from `train_armor_models.py`. The full 1086-frame recording and other footage
-are what should train and test the next version:
+### What these numbers cannot show
+
+- **One robot, three numbers.** Both videos show the same robot, and the classifier has only seen 2, 3 and 4. On
+  a phone recording of robot 5 with red bars (not committed) it rejected the 5 in most frames: it reported a
+  plate in 7 of 239 frames against 31 for the rules, all of them on the robot. A new number needs labelled
+  plates before the matcher is used on it.
+- **The folds share a scene.** Held-out blocks come from the same recordings, lighting and floor as the training
+  blocks; they test new frames, not new places.
+- **The committed models are trained on all labelled frames of both videos.** `evaluate.py --matcher learned`
+  and `compare_matchers.py` on those videos therefore show what the models learned and say so; the held-out
+  numbers above come only from `train_armor_models.py`.
+- **The number labels on video2 started as model suggestions.** I checked every one by eye, but a reviewer
+  agrees more easily than a labeller from scratch.
+
+### Seeing it, and training it again
 
 ```bash
-pip install -r requirements-ml.txt                       # PyTorch and ONNX, for training only
-python label_patches.py video2.avi                       # the number on each pair near a click
-python train_armor_models.py video2.avi clips/robot_clip.mp4 --cv 5   # compare, then write models/
-python evaluate.py video2.avi --matcher learned          # or run_videos.py ... --matcher learned
+python compare_matchers.py video2.avi          # rules left, learned right, clicked plates as white circles
+pip install -r requirements-ml.txt             # PyTorch and ONNX, only for the steps below
+python label_patches.py video2.avi --auto      # suggest the number on each pair near a click ...
+python label_patches.py video2.avi             # ... and correct them in a window
+python train_armor_models.py video2.avi clips/robot_clip.mp4   # held-out comparison, then write models/
 ```
+
+`compare_matchers.py` plays both side by side with a running count of correct plates on the labelled frames
+(**space** pause, **a**/**d** step, **s** save a frame, **q** quit) and writes `outputs/<video>/compare.mp4`.
+`run_videos.py` and `evaluate.py` take `--matcher learned` as well.
 
 ## The pose solver
 
@@ -396,6 +408,8 @@ written up in that folder's README along with what the numbers cannot show.
   already applied. Every label was 14% too far from the origin and the first evaluation scored 0/103 correct.
   The clicks were recoverable by scaling them back; the original file is kept as
   `labels/video2.buggy-coordinates.csv.bak`. A test now pins the label round trip.
+- The learned pairing does not replace the rules in `original_2021/`; it is an option (`--matcher learned`) next
+  to the replay, and the rules stay the default.
 - The tracker, the harness, the calibration work, the tests and this README are later additions, written with
   help from an AI coding assistant. All numbers come from the scripts in this repository.
 
@@ -458,6 +472,7 @@ python evaluate.py clips/robot_clip.mp4          # scores both stages against th
 python tune_tracker.py clips/robot_clip.mp4      # the gate/patience sweep, on the clip
 python solve_pose.py clips/robot_clip.mp4        # plate distance from PnP, with its self-checks
 python reconstruct_trajectory.py clips/robot_clip.mp4   # the robot's path on the floor, checked against the labels
+python compare_matchers.py clips/robot_clip.mp4  # the 2021 rules and the learned pairing side by side
 ```
 
 On the clip the detector is right in 26 of the 29 frames where it reports a plate. The numbers quoted in this
@@ -478,6 +493,7 @@ Each video is played back with the detections drawn on it and written to `output
 | `--enemy auto\|blue\|red` | Light-bar colour; `auto` probes both on ~30 frames. |
 | `--proc-width 720` | Downscale before detection (`0` = native). The thresholds assume light bars of 10–150 px. |
 | `--meas-std`, `--max-coast`, `--accel-std` | Tracker gate, patience and process noise. |
+| `--matcher rules\|learned` | Pair light bars with the 2021 rules or the models in `--models` (default `models/`). |
 | `--no-show`, `--no-video`, `--speed` | Batch mode, skip the mp4, playback speed. |
 
 ## Repository layout
@@ -493,7 +509,11 @@ Each video is played back with the detections drawn on it and written to `output
 | [`label_frames.py`](label_frames.py) | Click tool for ground-truth armor centres. |
 | [`evaluate.py`](evaluate.py) | Scores detector and tracker against those labels. |
 | [`replay/metrics.py`](replay/metrics.py) | The scoring itself, unit-tested. |
-| [`tests/`](tests) | Unit tests on synthetic data: detection, colour selection, pairing rules, tracker gating, scoring, pose, floor plane, ray intersection, smoother, end-to-end trajectory. |
+| [`replay/learned.py`](replay/learned.py), [`replay/armor_patch.py`](replay/armor_patch.py) | Learned pairing: bar-pair features, the plate patch, ONNX inference with `cv2.dnn`. |
+| [`train_armor_models.py`](train_armor_models.py), [`label_patches.py`](label_patches.py) | Training with time-block cross-validation, and the tool that labels the number on each plate. |
+| [`compare_matchers.py`](compare_matchers.py) | The rules and the learned pairing side by side. |
+| [`models/`](models) | The trained pair MLP and number CNN as ONNX, with their class names and thresholds. |
+| [`tests/`](tests) | Unit tests on synthetic data: detection, colour selection, pairing rules, tracker gating, scoring, learned pairing, pose, floor plane, ray intersection, smoother, end-to-end trajectory. |
 | [`clips/`](clips), [`labels/`](labels) | A six-second cut of the original recording and the frames I labelled by hand. |
 | [`solve_pose.py`](solve_pose.py), [`replay/pose.py`](replay/pose.py) | The plate pose: PnP and its self-checks, completing the unfinished `display()`. |
 | [`reconstruct_trajectory.py`](reconstruct_trajectory.py), [`replay/trajectory.py`](replay/trajectory.py) | Floor plane from the plates, ray–plane positions, floor Kalman filter, RTS smoother, robot path. |
