@@ -193,7 +193,7 @@ class LearnedMatcher:
         x = (np.asarray(features, dtype=np.float32) - self.feature_mean) / self.feature_std
         self.pair_net.setInput(x)
         logits = self.pair_net.forward().reshape(-1)
-        return 1 / (1 + np.exp(-logits))
+        return 1 / (1 + np.exp(-np.clip(logits, -50, 50)))
 
     def number_probs(self, patches):
         blob = np.asarray(patches, dtype=np.float32)[:, None, :, :]

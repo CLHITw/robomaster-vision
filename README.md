@@ -191,13 +191,31 @@ other four (`python train_armor_models.py clips/robot_clip.mp4`):
 | number on the plate, hand-labelled plates | — | 58/59 |
 | false target on the 4 empty frames | 0% | 0% |
 
+On the full recording, with the 286 pairs near a click labelled by `label_patches.py --auto` and checked
+by eye (7 of the suggestions changed), and the same five-block cross-validation over both videos
+(`python train_armor_models.py video2.avi clips/robot_clip.mp4`):
+
+| video2.avi, 211 labelled frames with a target | 2021 rules | learned, held out |
+|---|---|---|
+| detector reports a plate, correct | 82.5% (85/103) | **95.1%** (173/182) |
+| ‣ of all frames with a target | 40.3% | **82.0%** |
+| tracker, correct, of all frames with a target | 56.4% | 74.4% |
+| detector median error (p90) | 3.3 px (71.0 px) | 3.4 px (**6.6 px**) |
+| number on the plate, both videos | — | 274/274 |
+| false target on the 7 empty frames | 0% | 0% |
+
 The detector now reports a correct plate in most frames instead of fewer than half, without losing precision.
 The tracker gains less, and is now the weaker stage: it still starts a track only from a frame with exactly one
 candidate and was tuned for the old detector, so re-running `tune_tracker.py` with the new candidates is the
 obvious next step. With another seed the held-out numbers are 82.1% and 78.6%; the detector figure is stable,
 the tracker figure moves by a few frames.
 
-What this does not show: it is one six-second clip of one robot, the folds are neighbouring stretches of that
+On a phone recording of a different robot (number 5, red bars, 720×1280, not committed) the learned matcher
+reported a plate in 7 of 239 frames against 31 for the rules, all of them on the robot: a 5 is not one of the
+classes it was trained on, so it rejects the plate most of the time. A new robot number needs labelled plates
+before the matcher can be used on it.
+
+What this does not show: the clip is six seconds of one robot, the folds are neighbouring stretches of that
 same clip, and the number classifier has only seen 2, 3 and 4. The committed models in `models/` are trained on
 all of it, so `python evaluate.py clips/robot_clip.mp4 --matcher learned` scores what they memorised and says
 so; the held-out numbers come only from `train_armor_models.py`. The full 1086-frame recording and other footage

@@ -299,15 +299,19 @@ def print_comparison(name, res):
 # --------------------------------------------------------------------------
 
 def export(models, args):
+    import inspect
+
     import torch
+    # torch >= 2.5 would pick the new dynamo exporter; older versions do not know the argument
+    legacy = {"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(models.pair_net, torch.zeros(1, len(FEATURE_NAMES)), out / "pair_mlp.onnx",
                       input_names=["features"], output_names=["logit"],
-                      dynamic_axes={"features": {0: "n"}, "logit": {0: "n"}}, dynamo=False)
+                      dynamic_axes={"features": {0: "n"}, "logit": {0: "n"}}, **legacy)
     torch.onnx.export(models.number_net, torch.zeros(1, 1, PATCH_SIZE, PATCH_SIZE), out / "number_cnn.onnx",
                       input_names=["patch"], output_names=["logits"],
-                      dynamic_axes={"patch": {0: "n"}, "logits": {0: "n"}}, dynamo=False)
+                      dynamic_axes={"patch": {0: "n"}, "logits": {0: "n"}}, **legacy)
     meta = {
         "pair_model": "pair_mlp.onnx",
         "number_model": "number_cnn.onnx",
