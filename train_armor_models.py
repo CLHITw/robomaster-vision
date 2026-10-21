@@ -322,7 +322,7 @@ def export(models, args):
         "patch_size": PATCH_SIZE,
         "pair_threshold": args.pair_threshold,
         "number_threshold": args.number_threshold,
-        "trained_on": [str(v) for v in args.videos],
+        "trained_on": [v.as_posix() for v in args.videos],
     }
     (out / "armor_models.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return out

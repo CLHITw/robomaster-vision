@@ -113,7 +113,7 @@ def main():
     if args.matcher == "learned":
         from replay.learned import LearnedMatcher
         matcher = LearnedMatcher.load(args.models)
-        if any(Path(v).name == args.video.name for v in matcher.meta.get("trained_on", [])):
+        if any(Path(v.replace("\\", "/")).name == args.video.name for v in matcher.meta.get("trained_on", [])):
             print(f"WARNING: the models in {args.models}/ were trained on {args.video.name}; the scores below "
                   f"measure memory, not accuracy. train_armor_models.py --cv reports held-out scores.")
     records, width = replay(args.video, args.enemy, args.proc_width, args.meas_std, args.max_coast, matcher)

@@ -60,7 +60,7 @@ def run(args):
     labels_path = Path("labels") / f"{args.video.stem}.csv"
     labels = load_labels(labels_path, 1.0) if labels_path.exists() else {}
     matcher = LearnedMatcher.load(args.models)
-    if any(Path(v).name == args.video.name for v in matcher.meta.get("trained_on", [])):
+    if any(Path(v.replace("\\", "/")).name == args.video.name for v in matcher.meta.get("trained_on", [])):
         print(f"note: the models were trained on {args.video.name}, so the right-hand side shows what they "
               f"learned; train_armor_models.py --cv reports held-out scores.")
     cap = cv2.VideoCapture(str(args.video))
